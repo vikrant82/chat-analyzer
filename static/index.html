@@ -1,0 +1,156 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Backend Chat Analyzer</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
+        .container { max-width: 800px; margin: 20px auto; padding: 20px; background-color: white; box-shadow: 0 0 10px rgba(0,0,0,0.1); border-radius: 8px; }
+        h1, h2 { color: #0366d6; margin-top: 0; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: 500; }
+        input[type="text"], input[type="tel"], input[type="date"], input[type="password"], select, button, textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px; box-sizing: border-box; margin-bottom: 5px; }
+        textarea { min-height: 80px; resize: vertical; }
+        .checkbox-group { display: flex; align-items: center; margin-bottom: 15px; gap: 8px; }
+        .checkbox-group input[type="checkbox"] { width: auto; margin-bottom: 0; }
+        .checkbox-group label { margin-bottom: 0; font-weight: normal; }
+        button { background-color: #0366d6; color: white; border: none; cursor: pointer; transition: background-color 0.3s; font-weight: bold; }
+        button:hover:not(:disabled) { background-color: #0256a3; }
+        button:disabled { background-color: #cccccc; cursor: not-allowed; opacity: 0.7; }
+        .error-message { color: #d73a49; font-size: 14px; margin-top: 5px; min-height: 1em; }
+        .date-range { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; }
+        .date-input { flex: 1; min-width: 150px; }
+        .section { display: none; }
+        .section.active { display: block; }
+        .button-group { display: flex; gap: 10px; flex-wrap: wrap; }
+        .footer-actions { margin-top: 20px; display: flex; gap: 10px; }
+        #summaryContent { padding: 15px; background-color: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 6px; line-height: 1.6; margin-bottom: 15px; }
+        /* Style for the chat refresh link */
+        .chat-label-group { display: flex; justify-content: space-between; align-items: center; }
+        #refreshChatsLink { font-size: 12px; cursor: pointer; color: #0366d6; text-decoration: underline; }
+        #lastUpdatedTime { font-size: 12px; color: #6a737d; }
+        /* Modal for switching service */
+        .modal { display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); }
+        .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 400px; border-radius: 8px; text-align: center;}
+        .modal-content h3 { margin-top: 0; }
+        .modal-content button { margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Chat Analyzer</h1>
+
+        <!-- Login Section (Unchanged) -->
+        <div id="loginSection" class="section">
+            <h2>Login to a Service</h2>
+            <div class="form-group">
+                <label for="backendSelect">Chat Service:</label>
+                <select id="backendSelect">
+                    <option value="telegram">Telegram</option>
+                    <option value="webex">Webex</option>
+                </select>
+            </div>
+            <form id="telegramLoginForm">
+                <div class="form-group">
+                    <label for="phone">Phone Number:</label>
+                    <input type="tel" id="phone" required placeholder="+14155552671">
+                </div>
+                <button type="button" id="loginSubmitButton">Send Code</button>
+            </form>
+            <div id="webexLoginContainer" style="display: none;">
+                 <button type="button" id="webexLoginButton">Login with Webex</button>
+            </div>
+            <div id="loginError" class="error-message"></div>
+        </div>
+
+        <!-- Verification Section (Unchanged) -->
+        <div id="verificationSection" class="section">
+            <h2>Verification</h2>
+            <p>Enter the code sent to your Telegram account.</p>
+            <div class="form-group">
+                <label for="verificationCode">Verification Code:</label>
+                <input type="text" id="verificationCode" required>
+            </div>
+             <div class="form-group" id="passwordField" style="display: none;">
+                <label for="password">Password (2FA):</label>
+                <input type="password" id="password">
+            </div>
+            <button type="button" id="verifyButton">Verify Code</button>
+            <div id="verificationError" class="error-message"></div>
+        </div>
+
+        <!-- Chat Selection & Analysis Section (MODIFIED) -->
+        <div id="chatSection" class="section">
+            <h2 id="chatSectionTitle">Analyze Chats</h2>
+            <div class="form-group">
+                <div class="chat-label-group">
+                    <label for="chatSelect">Chat:</label>
+                    <a id="refreshChatsLink">Refresh List</a>
+                </div>
+                <select id="chatSelect" required>
+                    <option value="" disabled selected>Click "Refresh List" to load chats</option>
+                </select>
+                <div id="chatLoadingError" class="error-message"></div>
+                <span id="lastUpdatedTime"></span>
+            </div>
+            <div class="form-group">
+                <label for="modelSelect">AI Model:</label>
+                <select id="modelSelect" required disabled></select>
+                <div id="modelError" class="error-message"></div>
+            </div>
+            <div class="date-range">
+                <div class="date-input">
+                    <label for="startDate">Start Date:</label>
+                    <input type="date" id="startDate" required>
+                </div>
+                <div class="date-input">
+                    <label for="endDate">End Date:</label>
+                    <input type="date" id="endDate" required>
+                </div>
+            </div>
+            <div id="dateError" class="error-message"></div>
+            <div class="form-group checkbox-group">
+                 <input type="checkbox" id="askQuestionToggle">
+                 <label for="askQuestionToggle">Ask a specific question instead of summarizing?</label>
+            </div>
+            <div id="questionInputContainer" class="form-group" style="display: none;">
+                <label for="questionInput">Your Question:</label>
+                <textarea id="questionInput" placeholder="Enter the question you want to ask..." required></textarea>
+                <div id="questionError" class="error-message"></div>
+            </div>
+            <div class="button-group">
+                <button id="getSummaryButton" type="button" disabled>Get Summary</button>
+            </div>
+            <div class="footer-actions">
+                <button id="switchServiceButton" type="button" style="background-color: #17a2b8;">Switch Service</button>
+                <button id="logoutButton" type="button" style="background-color: #d73a49;">Logout</button>
+            </div>
+        </div>
+
+        <!-- Results Section (Unchanged) -->
+        <div id="summarySection" class="section">
+            <h2 id="resultsTitle">Summary</h2>
+            <div id="summaryMeta"></div>
+            <div id="summaryContent">
+                <p>Results will appear here...</p>
+            </div>
+            <button id="summarizeAnotherButton" type="button">Analyze Another Chat</button>
+        </div>
+    </div>
+
+    <!-- Switch Service Modal (Unchanged) -->
+    <div id="switchServiceModal" class="modal">
+        <div class="modal-content">
+            <h3>Switch To...</h3>
+            <div id="switchServiceOptions"></div>
+            <button id="cancelSwitchButton">Cancel</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="/static/script.js" defer></script>
+</body>
+</html>
