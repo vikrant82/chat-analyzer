@@ -198,15 +198,16 @@ In the root of the project, create a `config.json` file and populate it with you
   },
   "google_ai": {
     "api_key": "YOUR_GOOGLE_AI_API_KEY",
-    "default_model": "gemini-1.5-flash" 
+    "default_model": "gemini-2.5-flash" 
   },
   "lm_studio": {
     "url": "http://localhost:1234/v1/chat/completions",
-    "default_model": "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF"
+    "default_model": "qwen3-30b-a3b-128k"
   }
 }
 ```
 *Note: If you are running the app in Docker and want to connect to LM Studio running on your host machine, use `http://host.docker.internal:1234/v1/chat/completions` as the `url`.*
+*Note: Some of my favorite free and fast models are mentioned above as defaults*
 
 ## User Guide
 
