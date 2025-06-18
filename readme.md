@@ -171,7 +171,7 @@ You may want to build a local image with changes or if unable to access docker h
 -   **Webex**:
     1.  Log into the [Webex App Hub for Developers](https://developer.webex.com/my-apps).
     2.  Click "Create a New App" -> "Create an Integration".
-    3.  For the **Redirect URI(s)**, you **must** enter: `http://localhost:8000/api/webex/callback`
+    3.  For the **Redirect URI(s)**, you **can** enter for example: `http://localhost:8000/api/webex/callback`
     4.  Define the **Scopes**. Select `spark:all`.
     5.  After creating the app, copy the **Client ID** and **Client Secret**.
 -   **Google AI**:
