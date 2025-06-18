@@ -1,0 +1,33 @@
+# Git files
+.git
+.gitignore
+
+# Docker files (they don't need to be inside the image)
+Dockerfile
+docker-compose.yaml
+
+# Python virtual environment
+venv/
+.venv/
+env/
+.env
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE and OS-specific files
+.idea/
+.vscode/
+*.DS_Store
+
+# Local sessions and cache (these should be handled by volumes, not baked into the image)
+sessions/
+cache/
+
+# Local logs
+*.log
+
+config.json

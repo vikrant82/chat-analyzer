@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+telethon
+httpx
+python-multipart
+google-generativeai
+pydantic
+requests
