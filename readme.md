@@ -75,7 +75,7 @@ docker run -d \
   -v chat_analyzer_cache:/app/cache \
   vikrant82/chat-analyzer:latest
 ```
-**Persistent Data**: The `docker-compose-localbuild.yaml` file is configured to use Docker volumes (`sessions_data` and `cache_data`). This means your login sessions and message cache will persist even if you stop and restart the container.
+**Persistent Data**: The `docker-compose.yaml` file is configured to use Docker volumes (`sessions_data` and `cache_data`). This means your login sessions and message cache will persist even if you stop and restart the container.
 
 ### Method 1.2: Running with Docker (Building a local image)
 
