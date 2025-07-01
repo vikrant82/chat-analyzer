@@ -129,7 +129,7 @@ class TelegramClientImpl(ChatClient):
                 ))
         return chats
 
-    async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str) -> List[Message]:
+    async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str, enable_caching: bool = True) -> List[Message]:
         start_dt = datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
         end_dt = datetime.strptime(end_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
         today_dt = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -216,7 +216,7 @@ class TelegramClientImpl(ChatClient):
                 all_messages.extend(messages_for_this_day)
                 
                 # If the day is before today, we cache the result, even if it's empty
-                if day_to_cache < today_dt:
+                if day_to_cache < today_dt and enable_caching:
                     cache_path = self._get_cache_path(user_identifier, chat_id, day_to_cache)
                     with open(cache_path, 'w') as f:
                         logger.info(f"Caching {len(messages_for_this_day)} messages for {day_to_cache.date()} at {cache_path}")

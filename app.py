@@ -403,11 +403,15 @@ class SummaryRequest(BaseModel):
     endDate: str
     modelName: str
     question: Optional[str] = None
+    enableCaching: Optional[bool] = True
 
 @router_api.post("/summary")
 async def get_summary_or_answer(req: SummaryRequest):
     client = get_client(req.backend)
-    messages: List[StandardMessage] = await client.get_messages(req.userId, req.chatId, req.startDate, req.endDate)
+    # Always consult cache, but only write if enableCaching is True
+    messages: List[StandardMessage] = await client.get_messages(
+        req.userId, req.chatId, req.startDate, req.endDate, enable_caching=req.enableCaching
+    )
     
     if not messages:
         return {"summary": {"num_messages": 0, "ai_summary": "No text messages found in this period."}, "status": "success_empty"}

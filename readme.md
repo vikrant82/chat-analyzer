@@ -75,7 +75,7 @@ docker run -d \
   -v chat_analyzer_cache:/app/cache \
   vikrant82/chat-analyzer:latest
 ```
-**Persistent Data**: The `docker-compose.yaml` file is configured to use Docker volumes (`sessions_data` and `cache_data`). This means your login sessions and message cache will persist even if you stop and restart the container.
+**Persistent Data**: The `docker-compose-localbuild.yaml` file is configured to use Docker volumes (`sessions_data` and `cache_data`). This means your login sessions and message cache will persist even if you stop and restart the container.
 
 ### Method 1.2: Running with Docker (Building a local image)
 
@@ -171,7 +171,7 @@ You may want to build a local image with changes or if unable to access docker h
 -   **Webex**:
     1.  Log into the [Webex App Hub for Developers](https://developer.webex.com/my-apps).
     2.  Click "Create a New App" -> "Create an Integration".
-    3.  For the **Redirect URI(s)**, you **can** enter for example: `http://localhost:8000/api/webex/callback`
+    3.  For the **Redirect URI(s)**, you **must** enter: `http://localhost:8000/api/webex/callback`
     4.  Define the **Scopes**. Select `spark:all`.
     5.  After creating the app, copy the **Client ID** and **Client Secret**.
 -   **Google AI**:
@@ -198,16 +198,15 @@ In the root of the project, create a `config.json` file and populate it with you
   },
   "google_ai": {
     "api_key": "YOUR_GOOGLE_AI_API_KEY",
-    "default_model": "gemini-2.5-flash" 
+    "default_model": "gemini-1.5-flash" 
   },
   "lm_studio": {
     "url": "http://localhost:1234/v1/chat/completions",
-    "default_model": "qwen3-30b-a3b-128k"
+    "default_model": "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF"
   }
 }
 ```
 *Note: If you are running the app in Docker and want to connect to LM Studio running on your host machine, use `http://host.docker.internal:1234/v1/chat/completions` as the `url`.*
-*Note: Some of my favorite free and fast models are mentioned above as defaults*
 
 ## User Guide
 
