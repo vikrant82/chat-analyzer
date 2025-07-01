@@ -9,6 +9,7 @@ const appState = {
     chatsLoaded: false,
     analysisMode: 'summary',
 };
+const CACHE_CHATS_KEY = 'chat_analyzer_cache_chats_enabled';
 
 // Namespaced Local Storage Keys
 const ACTIVE_BACKEND_KEY = 'chat_analyzer_active_backend';
@@ -51,6 +52,7 @@ const getSummaryButton = document.getElementById('getSummaryButton');
 const logoutButton = document.getElementById('logoutButton');
 const switchServiceButton = document.getElementById('switchServiceButton');
 const askQuestionToggle = document.getElementById('askQuestionToggle');
+const cacheChatsToggle = document.getElementById('cacheChatsToggle');
 const questionInputContainer = document.getElementById('questionInputContainer');
 const questionInput = document.getElementById('questionInput');
 const questionError = document.getElementById('questionError');
@@ -401,6 +403,10 @@ async function loadModels() {
 }
 
 async function handleGetSummary() {
+    // Save the current cacheChatsToggle state to localStorage
+    if (cacheChatsToggle) {
+        localStorage.setItem(CACHE_CHATS_KEY, cacheChatsToggle.checked ? 'true' : 'false');
+    }
     const requestBody = {
         backend: appState.activeBackend,
         userId: appState.userIdentifiers[appState.activeBackend],
@@ -408,7 +414,8 @@ async function handleGetSummary() {
         startDate: startDateInput.value,
         endDate: endDateInput.value,
         modelName: modelSelect.value,
-        question: askQuestionToggle.checked ? questionInput.value.trim() : null
+        question: askQuestionToggle.checked ? questionInput.value.trim() : null,
+        enableCaching: cacheChatsToggle ? cacheChatsToggle.checked : true
     };
     
     try {
@@ -464,6 +471,15 @@ async function checkSessionOnLoad() {
 document.addEventListener('DOMContentLoaded', () => {
     // Set default dates only once on initial load.
     setDefaultDates();
+
+    // Restore cacheChatsToggle state from localStorage (default enabled)
+    if (cacheChatsToggle) {
+        const saved = localStorage.getItem(CACHE_CHATS_KEY);
+        cacheChatsToggle.checked = saved === null ? true : saved === 'true';
+        cacheChatsToggle.addEventListener('change', () => {
+            localStorage.setItem(CACHE_CHATS_KEY, cacheChatsToggle.checked ? 'true' : 'false');
+        });
+    }
 
     if (backendSelect) backendSelect.addEventListener('change', handleBackendChange);
     if (loginSubmitButton) loginSubmitButton.addEventListener('click', handleLogin);
