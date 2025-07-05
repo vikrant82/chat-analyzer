@@ -1,4 +1,3 @@
-
 // --- Global State & Configuration ---
 const appState = {
     isProcessing: false,
@@ -6,7 +5,7 @@ const appState = {
     userIdentifiers: { telegram: null, webex: null },
     activeSection: 'login',
     modelsLoaded: false,
-    chatsLoaded: false,
+    chatListStatus: { telegram: 'unloaded', webex: 'unloaded' }, // 'unloaded', 'loading', 'loaded'
     analysisMode: 'summary',
 };
 const CACHE_CHATS_KEY = 'chat_analyzer_cache_chats_enabled';
@@ -26,7 +25,6 @@ const config = {
 const loginSection = document.getElementById('loginSection');
 const verificationSection = document.getElementById('verificationSection');
 const chatSection = document.getElementById('chatSection');
-const summarySection = document.getElementById('summarySection');
 const backendSelect = document.getElementById('backendSelect');
 const telegramLoginForm = document.getElementById('telegramLoginForm');
 const webexLoginContainer = document.getElementById('webexLoginContainer');
@@ -56,14 +54,17 @@ const cacheChatsToggle = document.getElementById('cacheChatsToggle');
 const questionInputContainer = document.getElementById('questionInputContainer');
 const questionInput = document.getElementById('questionInput');
 const questionError = document.getElementById('questionError');
-const summaryContent = document.getElementById('summaryContent');
-const summaryMeta = document.getElementById('summaryMeta');
-const summarizeAnotherButton = document.getElementById('summarizeAnotherButton');
-const resultsTitle = document.getElementById('resultsTitle');
 const switchServiceModal = document.getElementById('switchServiceModal');
 const switchServiceOptions = document.getElementById('switchServiceOptions');
 const cancelSwitchButton = document.getElementById('cancelSwitchButton');
 const chatSectionTitle = document.getElementById('chatSectionTitle');
+
+// Elements for the new in-page results
+const resultsContainer = document.getElementById('resultsContainer');
+const summaryContent = document.getElementById('summaryContent');
+const summaryMeta = document.getElementById('summaryMeta');
+const resultsTitle = document.getElementById('resultsTitle');
+
 
 // --- Utility Functions (Unchanged) ---
 function setLoadingState(buttonElement, isLoading, loadingText = 'Processing...') { /* ... */ }
@@ -115,7 +116,7 @@ function updateSummaryButtonState() {
     let isEnabled = false;
     const validChatSelected = chatSelect && chatSelect.value && !chatSelect.options[chatSelect.selectedIndex]?.disabled;
     const validModelSelected = modelSelect && modelSelect.value && !modelSelect.options[modelSelect.selectedIndex]?.disabled;
-    const baseRequirementsMet = appState.chatsLoaded && appState.modelsLoaded && validChatSelected && validModelSelected;
+    const baseRequirementsMet = appState.chatListStatus[appState.activeBackend] === 'loaded' && appState.modelsLoaded && validChatSelected && validModelSelected;
 
     if (baseRequirementsMet) {
         if (askQuestionToggle && askQuestionToggle.checked) {
@@ -178,6 +179,7 @@ function showSection(sectionName) {
     document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
     appState.activeSection = sectionName;
     clearErrors();
+    if (resultsContainer) resultsContainer.style.display = 'none'; // Hide results when switching sections
 
     const sectionToShow = document.getElementById(sectionName + 'Section');
     if (sectionToShow) {
@@ -192,9 +194,11 @@ function showSection(sectionName) {
         if (chatSectionTitle) {
             chatSectionTitle.textContent = `Analyze Chats (${appState.activeBackend.charAt(0).toUpperCase() + appState.activeBackend.slice(1)})`;
         }
-        // setDefaultDates(); // REMOVED from here to retain values
         if (!appState.modelsLoaded) {
             loadModels();
+        }
+        if (appState.chatListStatus[appState.activeBackend] === 'unloaded') {
+            handleLoadChats();
         }
     } else if (sectionName === 'login') {
         if (backendSelect) {
@@ -236,9 +240,12 @@ async function switchService(newBackend) {
             appState.activeBackend = newBackend;
             appState.userIdentifiers[newBackend] = storedUserId;
             localStorage.setItem(ACTIVE_BACKEND_KEY, newBackend);
-            appState.chatsLoaded = false;
-            if (chatSelect) chatSelect.innerHTML = '<option value="" disabled selected>Click "Refresh List" to load chats</option>';
-            if (lastUpdatedTime) lastUpdatedTime.textContent = '';
+            
+            // Do not reset chat list if already loaded for this backend
+            if (appState.chatListStatus[newBackend] !== 'loaded') {
+                 if (chatSelect) chatSelect.innerHTML = '<option value="" disabled selected>Loading chats...</option>';
+                 if (lastUpdatedTime) lastUpdatedTime.textContent = '';
+            }
             
             showSection('chat');
             return;
@@ -306,6 +313,7 @@ async function handleFullLogout() {
         await makeApiRequest('/api/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ backend, userId }) }, config.timeouts.logout, logoutButton);
         localStorage.removeItem(getUserIdKey(backend));
         appState.userIdentifiers[backend] = null;
+        appState.chatListStatus[backend] = 'unloaded'; // Reset chat loading status
     }
     
     const otherBackend = backend === 'telegram' ? 'webex' : 'telegram';
@@ -330,7 +338,7 @@ async function handleLoadChats() {
         if (chatLoadingError) chatLoadingError.textContent = "No user session active.";
         return;
     };
-    appState.chatsLoaded = false;
+    appState.chatListStatus[backend] = 'loading';
     updateSummaryButtonState();
     try {
         const data = await makeApiRequest(`/api/chats?backend=${backend}&user_id=${encodeURIComponent(userId)}`, { method: 'GET' }, config.timeouts.loadChats, refreshChatsLink, 'Refreshing...');
@@ -343,13 +351,15 @@ async function handleLoadChats() {
                 if (chatSelect) chatSelect.appendChild(option);
             });
             if (chatSelect) chatSelect.disabled = false;
-            appState.chatsLoaded = true;
+            appState.chatListStatus[backend] = 'loaded';
             if(lastUpdatedTime) lastUpdatedTime.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
         } else {
             if (chatSelect) chatSelect.innerHTML = '<option disabled selected>No chats found</option>';
+            appState.chatListStatus[backend] = 'loaded'; // Loaded, but empty
         }
     } catch(error) {
         if (chatLoadingError) chatLoadingError.textContent = error.message || 'Failed to load chats.';
+        appState.chatListStatus[backend] = 'unloaded'; // Allow retry on failure
     } finally {
         updateSummaryButtonState();
     }
@@ -403,7 +413,7 @@ async function loadModels() {
 }
 
 async function handleGetSummary() {
-    // Save the current cacheChatsToggle state to localStorage
+    if (resultsContainer) resultsContainer.style.display = 'none';
     if (cacheChatsToggle) {
         localStorage.setItem(CACHE_CHATS_KEY, cacheChatsToggle.checked ? 'true' : 'false');
     }
@@ -424,7 +434,8 @@ async function handleGetSummary() {
             resultsTitle.textContent = requestBody.question ? 'Answer' : 'Summary';
             summaryContent.innerHTML = marked.parse(data.summary.ai_summary);
             summaryMeta.textContent = `Based on ${data.summary.num_messages} message(s).`;
-            showSection('summary');
+            resultsContainer.style.display = 'block';
+            resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
         } else {
              if (dateError) dateError.textContent = data.message || 'Failed to get results.';
         }
@@ -488,7 +499,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (logoutButton) logoutButton.addEventListener('click', handleFullLogout);
     if (switchServiceButton) switchServiceButton.addEventListener('click', openSwitchServiceModal);
     if (cancelSwitchButton) cancelSwitchButton.addEventListener('click', () => switchServiceModal.style.display = 'none');
-    if (summarizeAnotherButton) summarizeAnotherButton.addEventListener('click', () => showSection('chat'));
     if (refreshChatsLink) refreshChatsLink.addEventListener('click', handleLoadChats);
     if (getSummaryButton) getSummaryButton.addEventListener('click', handleGetSummary);
     
