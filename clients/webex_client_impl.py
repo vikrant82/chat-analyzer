@@ -1,4 +1,3 @@
-# --- START OF FILE clients/webex_client_impl.py ---
 
 import os
 from typing import List, Dict, Any
@@ -45,12 +44,10 @@ class WebexClientImpl(ChatClient):
         return os.path.join(user_cache_dir, f"{day.strftime('%Y-%m-%d')}.json")
 
     async def login(self, auth_details: Dict[str, Any]) -> Dict[str, Any]:
-        # This method is correct and unchanged
         auth_url = self.api.get_authorization_url()
         return {"status": "redirect_required", "url": auth_url}
 
     async def verify(self, auth_details: Dict[str, Any]) -> Dict[str, Any]:
-        # This method is correct and unchanged
         auth_code = auth_details.get("code")
         if not auth_code:
             raise ValueError("Authorization code is required for Webex verification.")
@@ -64,14 +61,12 @@ class WebexClientImpl(ChatClient):
             raise
 
     async def logout(self, user_identifier: str) -> None:
-        # This method is correct and unchanged
         try:
             self.api.revoke_token()
         except Exception as e:
             logger.error(f"Error during Webex token revocation: {e}", exc_info=True)
 
     async def get_chats(self, user_identifier: str) -> List[Chat]:
-        # This method is correct and unchanged
         raw_rooms = self.api.get_rooms()
         chats = [
             Chat(
@@ -110,20 +105,45 @@ class WebexClientImpl(ChatClient):
             current_day += timedelta(days=1)
         
         if dates_to_fetch_from_api:
-            logger.info(f"Cache MISS for Webex chat {chat_id}. Fetching recent messages to build cache.")
+            logger.info(f"Cache MISS for Webex chat {chat_id}. Fetching messages from API back to {start_dt.date()}.")
             
-            # Fetch a large batch to cover missing days.
-            all_recent_raw_messages = self.api.get_messages(room_id=chat_id, max=1000)
+            all_fetched_raw_messages = []
+            oldest_message_dt = datetime.now(timezone.utc)
+            fetch_start_dt = dates_to_fetch_from_api[0]
             
+            params = {"room_id": chat_id, "max": 1000}
+
+            while oldest_message_dt > fetch_start_dt:
+                logger.info(f"Fetching a batch of Webex messages for room {chat_id} before {params.get('before', 'now')}")
+                try:
+                    raw_batch = self.api.get_messages(**params)
+                except Exception as e:
+                    logger.error(f"Failed to fetch message batch for Webex room {chat_id}: {e}", exc_info=True)
+                    break 
+
+                if not raw_batch:
+                    logger.info(f"No more messages found for Webex room {chat_id}. Stopping pagination.")
+                    break
+
+                all_fetched_raw_messages.extend(raw_batch)
+                
+                oldest_message_in_batch_raw = raw_batch[-1]
+                oldest_message_dt = datetime.fromisoformat(oldest_message_in_batch_raw['created'].replace('Z', '+00:00'))
+                params['before'] = oldest_message_in_batch_raw['created']
+
+                if len(raw_batch) < 2:
+                     logger.info("Fetched a batch with less than 2 messages, assuming end of history.")
+                     break
+
             grouped_by_day = {}
-            for msg_raw in all_recent_raw_messages:
+            for msg_raw in all_fetched_raw_messages:
                 if not msg_raw.get('text'):
                     continue
                 
                 msg_dt = datetime.fromisoformat(msg_raw['created'].replace('Z', '+00:00'))
                 msg_day = msg_dt.replace(hour=0, minute=0, second=0, microsecond=0)
 
-                if msg_day in dates_to_fetch_from_api:
+                if start_dt <= msg_day <= end_dt:
                     if msg_day not in grouped_by_day:
                         grouped_by_day[msg_day] = []
                     
@@ -137,17 +157,11 @@ class WebexClientImpl(ChatClient):
                     )
                     grouped_by_day[msg_day].append(message)
 
-            # --- THIS IS THE CORRECTED CACHING LOGIC ---
-            
-            # 1. Iterate through ALL days we intended to fetch
             for day_to_cache in dates_to_fetch_from_api:
-                # 2. Get messages for this day, or an empty list if none were found
                 messages_for_this_day = grouped_by_day.get(day_to_cache, [])
                 
-                # 3. Add them to the main list for the final result
                 all_messages.extend(messages_for_this_day)
                 
-                # 4. If the day is before today, cache the result, even if it's empty
                 if day_to_cache < today_dt and enable_caching:
                     cache_path = self._get_cache_path(user_identifier, chat_id, day_to_cache)
                     with open(cache_path, 'w') as f:
@@ -157,11 +171,8 @@ class WebexClientImpl(ChatClient):
         return sorted(all_messages, key=lambda m: m.timestamp)
 
     async def is_session_valid(self, user_identifier: str) -> bool:
-        # This method is correct and unchanged
         try:
             self.api.get_user_details()
             return True
         except Exception:
             return False
-
-# --- END OF FILE clients/webex_client_impl.py ---
