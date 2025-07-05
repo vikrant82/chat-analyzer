@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Multi-Backend Chat Analyzer</title>
+    <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
     <style>
         body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
@@ -36,6 +37,7 @@
         .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 400px; border-radius: 8px; text-align: center;}
         .modal-content h3 { margin-top: 0; }
         .modal-content button { margin-top: 10px; }
+        .ts-control { padding: 10px !important; font-size: 16px !important; }
     </style>
 </head>
 <body>
@@ -89,9 +91,7 @@
                     <label for="chatSelect">Chat:</label>
                     <a id="refreshChatsLink">Refresh List</a>
                 </div>
-                <select id="chatSelect" required>
-                    <option value="" disabled selected>Loading chats...</option>
-                </select>
+                <select id="chatSelect" required></select>
                 <div id="chatLoadingError" class="error-message"></div>
                 <span id="lastUpdatedTime"></span>
             </div>
@@ -155,6 +155,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
     <script src="/static/script.js" defer></script>
 </body>
 </html>

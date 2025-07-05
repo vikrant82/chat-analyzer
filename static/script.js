@@ -21,6 +21,8 @@ const config = {
     }
 };
 
+let tomSelectInstance = null;
+
 // --- DOM Elements ---
 const loginSection = document.getElementById('loginSection');
 const verificationSection = document.getElementById('verificationSection');
@@ -114,7 +116,7 @@ function clearErrors() {
 
 function updateSummaryButtonState() {
     let isEnabled = false;
-    const validChatSelected = chatSelect && chatSelect.value && !chatSelect.options[chatSelect.selectedIndex]?.disabled;
+    const validChatSelected = tomSelectInstance && tomSelectInstance.getValue() !== "";
     const validModelSelected = modelSelect && modelSelect.value && !modelSelect.options[modelSelect.selectedIndex]?.disabled;
     const baseRequirementsMet = appState.chatListStatus[appState.activeBackend] === 'loaded' && appState.modelsLoaded && validChatSelected && validModelSelected;
 
@@ -241,9 +243,14 @@ async function switchService(newBackend) {
             appState.userIdentifiers[newBackend] = storedUserId;
             localStorage.setItem(ACTIVE_BACKEND_KEY, newBackend);
             
-            // Do not reset chat list if already loaded for this backend
             if (appState.chatListStatus[newBackend] !== 'loaded') {
-                 if (chatSelect) chatSelect.innerHTML = '<option value="" disabled selected>Loading chats...</option>';
+                 if (tomSelectInstance) {
+                    tomSelectInstance.clear();
+                    tomSelectInstance.clearOptions();
+                    tomSelectInstance.settings.placeholder = 'Loading chats...';
+                    tomSelectInstance.refreshOptions(false);
+                    tomSelectInstance.disable();
+                 }
                  if (lastUpdatedTime) lastUpdatedTime.textContent = '';
             }
             
@@ -313,7 +320,14 @@ async function handleFullLogout() {
         await makeApiRequest('/api/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ backend, userId }) }, config.timeouts.logout, logoutButton);
         localStorage.removeItem(getUserIdKey(backend));
         appState.userIdentifiers[backend] = null;
-        appState.chatListStatus[backend] = 'unloaded'; // Reset chat loading status
+        appState.chatListStatus[backend] = 'unloaded';
+        if (tomSelectInstance) {
+            tomSelectInstance.clear();
+            tomSelectInstance.clearOptions();
+            tomSelectInstance.settings.placeholder = 'Select or search for a chat...';
+            tomSelectInstance.refreshOptions(false);
+            tomSelectInstance.disable();
+        }
     }
     
     const otherBackend = backend === 'telegram' ? 'webex' : 'telegram';
@@ -332,34 +346,44 @@ async function handleFullLogout() {
 
 async function handleLoadChats() {
     const backend = appState.activeBackend;
-    if (!backend) return;
+    if (!backend || !tomSelectInstance) return;
     const userId = appState.userIdentifiers[backend];
     if (!userId) {
         if (chatLoadingError) chatLoadingError.textContent = "No user session active.";
         return;
     };
     appState.chatListStatus[backend] = 'loading';
+    tomSelectInstance.clear();
+    tomSelectInstance.clearOptions();
+    tomSelectInstance.settings.placeholder = 'Refreshing...';
+    tomSelectInstance.refreshOptions(false);
+    tomSelectInstance.disable();
     updateSummaryButtonState();
+
     try {
         const data = await makeApiRequest(`/api/chats?backend=${backend}&user_id=${encodeURIComponent(userId)}`, { method: 'GET' }, config.timeouts.loadChats, refreshChatsLink, 'Refreshing...');
-        if (chatSelect) chatSelect.innerHTML = '';
+        
         if (data && data.length > 0) {
             data.forEach(chat => {
-                const option = document.createElement('option');
-                option.value = chat.id;
-                option.textContent = `${chat.title} (${chat.type})`;
-                if (chatSelect) chatSelect.appendChild(option);
+                tomSelectInstance.addOption({
+                    value: chat.id,
+                    text: `${chat.title} (${chat.type})`
+                });
             });
-            if (chatSelect) chatSelect.disabled = false;
-            appState.chatListStatus[backend] = 'loaded';
+            tomSelectInstance.settings.placeholder = 'Select or search for a chat...';
+            tomSelectInstance.enable();
             if(lastUpdatedTime) lastUpdatedTime.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
         } else {
-            if (chatSelect) chatSelect.innerHTML = '<option disabled selected>No chats found</option>';
-            appState.chatListStatus[backend] = 'loaded'; // Loaded, but empty
+            tomSelectInstance.settings.placeholder = 'No chats found';
         }
+        appState.chatListStatus[backend] = 'loaded';
+        tomSelectInstance.refreshOptions(false);
+
     } catch(error) {
         if (chatLoadingError) chatLoadingError.textContent = error.message || 'Failed to load chats.';
-        appState.chatListStatus[backend] = 'unloaded'; // Allow retry on failure
+        tomSelectInstance.settings.placeholder = 'Failed to load. Click "Refresh List".';
+        tomSelectInstance.refreshOptions(false);
+        appState.chatListStatus[backend] = 'unloaded';
     } finally {
         updateSummaryButtonState();
     }
@@ -420,7 +444,7 @@ async function handleGetSummary() {
     const requestBody = {
         backend: appState.activeBackend,
         userId: appState.userIdentifiers[appState.activeBackend],
-        chatId: chatSelect.value,
+        chatId: tomSelectInstance.getValue(),
         startDate: startDateInput.value,
         endDate: endDateInput.value,
         modelName: modelSelect.value,
@@ -480,6 +504,15 @@ async function checkSessionOnLoad() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    if (chatSelect) {
+        tomSelectInstance = new TomSelect(chatSelect, {
+            create: false,
+            placeholder: 'Select or search for a chat...'
+        });
+        tomSelectInstance.disable(); // Start as disabled until chats are loaded
+        tomSelectInstance.on('change', updateSummaryButtonState);
+    }
+
     // Set default dates only once on initial load.
     setDefaultDates();
 
@@ -512,7 +545,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    if (chatSelect) chatSelect.addEventListener('change', updateSummaryButtonState);
     if (modelSelect) modelSelect.addEventListener('change', updateSummaryButtonState);
     if (questionInput) questionInput.addEventListener('input', updateSummaryButtonState);
     
