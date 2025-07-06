@@ -22,6 +22,7 @@ const config = {
 };
 
 let tomSelectInstance = null;
+let litepickerInstance = null;
 
 // --- DOM Elements ---
 const loginSection = document.getElementById('loginSection');
@@ -42,8 +43,6 @@ const verificationError = document.getElementById('verificationError');
 const chatSelect = document.getElementById('chatSelect');
 const modelSelect = document.getElementById('modelSelect');
 const modelError = document.getElementById('modelError');
-const startDateInput = document.getElementById('startDate');
-const endDateInput = document.getElementById('endDate');
 const dateError = document.getElementById('dateError');
 const chatLoadingError = document.getElementById('chatLoadingError');
 const refreshChatsLink = document.getElementById('refreshChatsLink');
@@ -70,7 +69,6 @@ const resultsTitle = document.getElementById('resultsTitle');
 
 // --- Utility Functions (Unchanged) ---
 function setLoadingState(buttonElement, isLoading, loadingText = 'Processing...') { /* ... */ }
-function setDefaultDates() { /* ... */ }
 function clearErrors() { /* ... */ }
 function updateSummaryButtonState() { /* ... */ }
 async function makeApiRequest(url, options, timeoutDuration, elementToLoad = null, loadingText = 'Processing...') { /* ... */ }
@@ -88,20 +86,6 @@ function setLoadingState(buttonElement, isLoading, loadingText = 'Processing...'
         }
         buttonElement.disabled = false;
         delete buttonElement.dataset.originalText;
-    }
-}
-
-function setDefaultDates() {
-    if (startDateInput && endDateInput) {
-        const today = new Date();
-        const todayString = today.toISOString().slice(0, 10);
-        // Only set the dates if they are empty, to avoid overwriting user selections
-        if (!startDateInput.value) {
-            startDateInput.value = todayString;
-        }
-        if (!endDateInput.value) {
-            endDateInput.value = todayString;
-        }
     }
 }
 
@@ -445,8 +429,8 @@ async function handleGetSummary() {
         backend: appState.activeBackend,
         userId: appState.userIdentifiers[appState.activeBackend],
         chatId: tomSelectInstance.getValue(),
-        startDate: startDateInput.value,
-        endDate: endDateInput.value,
+        startDate: litepickerInstance.getStartDate().toJSDate().toISOString().slice(0, 10),
+        endDate: litepickerInstance.getEndDate().toJSDate().toISOString().slice(0, 10),
         enableCaching: cacheChatsToggle ? cacheChatsToggle.checked : true
     };
 
@@ -477,8 +461,8 @@ async function handleGetSummary() {
     const analyzeRequestBody = {
         modelName: modelSelect.value,
         textToProcess: text_to_process,
-        startDate: startDateInput.value,
-        endDate: endDateInput.value,
+        startDate: prepareRequestBody.startDate,
+        endDate: prepareRequestBody.endDate,
         question: askQuestionToggle.checked ? questionInput.value.trim() : null
     };
 
@@ -546,9 +530,37 @@ document.addEventListener('DOMContentLoaded', () => {
         tomSelectInstance.disable(); // Start as disabled until chats are loaded
         tomSelectInstance.on('change', updateSummaryButtonState);
     }
+    
+    litepickerInstance = new Litepicker({
+        element: document.getElementById('dateRangePicker'),
+        singleMode: false,
+        format: 'YYYY-MM-DD',
+        plugins: ['ranges'],
+        ranges: {
+            'Today': [new Date(), new Date()],
+            'Last 7 Days': (() => {
+                const end = new Date();
+                const start = new Date();
+                start.setDate(end.getDate() - 6);
+                return [start, end];
+            })(),
+            'Last 30 Days': (() => {
+                const end = new Date();
+                const start = new Date();
+                start.setDate(end.getDate() - 29);
+                return [start, end];
+            })(),
+            'This Month': (() => {
+                const start = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+                const end = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
+                return [start, end];
+            })(),
+        },
+        setup: (picker) => {
+            picker.setDateRange(new Date(), new Date());
+        },
+    });
 
-    // Set default dates only once on initial load.
-    setDefaultDates();
 
     // Restore cacheChatsToggle state from localStorage (default enabled)
     if (cacheChatsToggle) {
