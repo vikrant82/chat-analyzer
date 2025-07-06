@@ -438,35 +438,69 @@ async function loadModels() {
 
 async function handleGetSummary() {
     if (resultsContainer) resultsContainer.style.display = 'none';
-    if (cacheChatsToggle) {
-        localStorage.setItem(CACHE_CHATS_KEY, cacheChatsToggle.checked ? 'true' : 'false');
-    }
-    const requestBody = {
+    clearErrors();
+
+    // --- Step 1: Prepare the analysis (fetch messages) ---
+    const prepareRequestBody = {
         backend: appState.activeBackend,
         userId: appState.userIdentifiers[appState.activeBackend],
         chatId: tomSelectInstance.getValue(),
         startDate: startDateInput.value,
         endDate: endDateInput.value,
-        modelName: modelSelect.value,
-        question: askQuestionToggle.checked ? questionInput.value.trim() : null,
         enableCaching: cacheChatsToggle ? cacheChatsToggle.checked : true
     };
-    
+
+    let prepareData;
     try {
-        const data = await makeApiRequest('/api/summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) }, config.timeouts.summary, getSummaryButton);
-        if (data.status.startsWith('success')) {
-            resultsTitle.textContent = requestBody.question ? 'Answer' : 'Summary';
-            summaryContent.innerHTML = marked.parse(data.summary.ai_summary);
-            summaryMeta.textContent = `Based on ${data.summary.num_messages} message(s).`;
-            resultsContainer.style.display = 'block';
-            resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        } else {
-             if (dateError) dateError.textContent = data.message || 'Failed to get results.';
-        }
+        prepareData = await makeApiRequest('/api/prepare-analysis', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(prepareRequestBody)
+        }, config.timeouts.summary, getSummaryButton, 'Fetching Messages...');
+    } catch (error) {
+        if (dateError) dateError.textContent = error.message || 'Failed to fetch messages.';
+        return;
+    }
+
+    const { num_messages, text_to_process } = prepareData;
+
+    if (num_messages === 0) {
+        resultsTitle.textContent = 'Result';
+        summaryContent.textContent = 'No text messages found in this period.';
+        summaryMeta.textContent = `Based on 0 message(s).`;
+        resultsContainer.style.display = 'block';
+        resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+    }
+
+    // --- Step 2: Execute the analysis (call AI) ---
+    const analyzeRequestBody = {
+        modelName: modelSelect.value,
+        textToProcess: text_to_process,
+        startDate: startDateInput.value,
+        endDate: endDateInput.value,
+        question: askQuestionToggle.checked ? questionInput.value.trim() : null
+    };
+
+    try {
+        const loadingText = `Analyzing ${num_messages} message(s)...`;
+        const analyzeData = await makeApiRequest('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(analyzeRequestBody)
+        }, config.timeouts.summary, getSummaryButton, loadingText);
+
+        resultsTitle.textContent = analyzeRequestBody.question ? 'Answer' : 'Summary';
+        summaryContent.innerHTML = marked.parse(analyzeData.ai_summary);
+        summaryMeta.textContent = `Based on ${num_messages} message(s).`;
+        resultsContainer.style.display = 'block';
+        resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
     } catch (error) {
         if (dateError) dateError.textContent = error.message || 'Failed to get summary.';
     }
 }
+
 
 async function checkSessionOnLoad() {
     const params = new URLSearchParams(window.location.search);
