@@ -1,4 +1,3 @@
-# --- START OF FILE app.py ---
 
 import json
 import logging
@@ -395,29 +394,40 @@ async def get_all_chats(backend: str, user_id: str):
             raise HTTPException(status_code=401, detail="Session expired or invalid. Please log in again.")
         raise HTTPException(status_code=500, detail=str(e))
 
-class SummaryRequest(BaseModel):
+class PrepareAnalysisRequest(BaseModel):
     backend: str
     userId: str
     chatId: str
     startDate: str
     endDate: str
-    modelName: str
-    question: Optional[str] = None
     enableCaching: Optional[bool] = True
 
-@router_api.post("/summary")
-async def get_summary_or_answer(req: SummaryRequest):
+class AnalyzeRequest(BaseModel):
+    modelName: str
+    textToProcess: str
+    startDate: str
+    endDate: str
+    question: Optional[str] = None
+
+@router_api.post("/prepare-analysis")
+async def prepare_analysis(req: PrepareAnalysisRequest):
     client = get_client(req.backend)
-    # Always consult cache, but only write if enableCaching is True
     messages: List[StandardMessage] = await client.get_messages(
         req.userId, req.chatId, req.startDate, req.endDate, enable_caching=req.enableCaching
     )
     
     if not messages:
-        return {"summary": {"num_messages": 0, "ai_summary": "No text messages found in this period."}, "status": "success_empty"}
+        return {"num_messages": 0, "text_to_process": ""}
 
     text_to_process = "\n\n".join([f"[{m.author.name} at {m.timestamp}]: {m.text}" for m in messages])
     
+    return {
+        "num_messages": len(messages),
+        "text_to_process": text_to_process
+    }
+
+@router_api.post("/analyze")
+async def analyze_text(req: AnalyzeRequest):
     selected_provider = None
     if req.modelName in AVAILABLE_MODELS.get("google_ai", []):
         selected_provider = "google_ai"
@@ -429,23 +439,16 @@ async def get_summary_or_answer(req: SummaryRequest):
     ai_result = ""
     try:
         if selected_provider == 'google_ai':
-            ai_result = await _call_google_ai(req.modelName, text_to_process, req.startDate, req.endDate, req.question)
+            ai_result = await _call_google_ai(req.modelName, req.textToProcess, req.startDate, req.endDate, req.question)
         elif selected_provider == 'lm_studio':
-            ai_result = await _call_lm_studio(req.modelName, text_to_process, req.startDate, req.endDate, req.question)
+            ai_result = await _call_lm_studio(req.modelName, req.textToProcess, req.startDate, req.endDate, req.question)
     except Exception as e:
-        # The specific HTTPException from the call functions will be raised
         if not isinstance(e, HTTPException):
             logger.error(f"AI call failed for model {req.modelName}: {e}", exc_info=True)
             raise HTTPException(status_code=502, detail=f"Failed to get response from AI service: {e}")
         raise e
 
-    return {
-        "summary": {
-            "num_messages": len(messages),
-            "ai_summary": ai_result
-        },
-        "status": "success"
-    }
+    return {"ai_summary": ai_result}
     
 @router_api.post("/logout")
 async def logout(req: dict):
@@ -479,5 +482,3 @@ if __name__ == "__main__":
         logger.info(f"Server starting on {host}:{port} (Reload disabled).")
         
     uvicorn.run("app:app", host=host, port=port, reload=reload_flag)
-
-# --- END OF FILE app.py ---
