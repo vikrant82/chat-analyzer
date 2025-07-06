@@ -9,6 +9,7 @@ The application features a robust caching system to ensure fast, repeated analys
 -   **Multi-Service Connectivity**: Securely log in to either Telegram or Webex accounts.
 -   **Multi-Session Support**: Stay logged into both Telegram and Webex simultaneously and seamlessly switch between them without needing to re-authenticate each time.
 -   **AI-Powered Analysis**:
+    -   **Real-time Streaming**: View AI responses as they are generated, word-by-word.
     -   **Summarization**: Generate concise summaries of chat conversations for a given period.
     -   **Question & Answering**: Ask specific questions about the chat content and receive AI-generated answers based *only* on the provided message history.
 -   **Flexible AI Model Support**:
@@ -16,13 +17,15 @@ The application features a robust caching system to ensure fast, repeated analys
     -   Connects to any locally-hosted model served through **LM Studio**.
     -   Dynamically populates and allows selection from all available models.
 -   **Intelligent Caching System**:
+    -   **Configurable**: Users can enable or disable caching.
     -   Dramatically speeds up analysis of historical data.
     -   Caches messages on a per-day, per-chat basis.
     -   Caches "empty" days to prevent redundant API calls for periods with no activity.
     -   Always fetches fresh data for "today" to ensure summaries are up-to-date.
 -   **User-Friendly Interface**:
+    -   **Searchable Chat List**: Quickly find the chat you're looking for.
+    -   **Modern Date Picker**: Includes pre-defined ranges like "Last 7 Days".
     -   Simple, step-by-step process: Login -> Select Chat -> Analyze.
-    -   Date range selector to pinpoint the exact conversation period.
 
 ## Project Structure
 
@@ -228,13 +231,14 @@ In the root of the project, create a `config.json` file and populate it with you
 
 Once logged in, you will be on the "Analyze Chats" screen.
 
-1.  **Select a Chat**: Your chats/rooms will be listed in the dropdown. If the list is empty, click the **"Refresh List"** link to load them.
+1.  **Select a Chat**: Your chats/rooms will be listed in the searchable dropdown. If the list is empty, click the **"Refresh List"** link to load them.
 2.  **Select an AI Model**: Choose your preferred AI model from the list. A sensible default will be pre-selected if configured.
-3.  **Select a Date Range**: Choose the start and end dates for the conversation you want to analyze.
-4.  **Choose an Action**:
+3.  **Select a Date Range**: Use the modern date picker to choose the start and end dates. You can also select from pre-defined ranges like "Today", "Last 7 Days", etc.
+4.  **Configure Caching**: Use the "Cache fetched chats" checkbox to enable or disable caching for the current analysis.
+5.  **Choose an Action**:
     -   **For a Summary**: Leave the "Ask a specific question" box unchecked and click **"Get Summary"**.
     -   **To Ask a Question**: Check the "Ask a specific question" box, type your question into the text area, and click **"Get Answer"**.
-5.  View the results on the summary page. Click **"Analyze Another Chat"** to return to the previous screen with your date range preserved.
+6.  View the results as they stream in from the AI model.
 
 ### Switching Services
 
