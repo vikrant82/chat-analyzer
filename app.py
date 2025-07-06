@@ -13,9 +13,10 @@ import google.generativeai as genai
 from google.generativeai.types import generation_types
 from fastapi import FastAPI, HTTPException, Query, Request, APIRouter
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from typing import AsyncGenerator
 
 # Local imports from our new structure
 from clients.factory import get_client
@@ -89,23 +90,24 @@ async def initialize_lm_studio_models():
         logger.error(f"Failed to fetch LM Studio models from {models_url}: {e}", exc_info=True)
         AVAILABLE_MODELS["lm_studio"] = []
 
-async def _call_google_ai(
+async def _call_google_ai_stream(
     model_name: str,
     text_to_summarize: str,
     start_date_str: str,
     end_date_str: str,
     question: Optional[str] = None
-) -> str:
+) -> AsyncGenerator[str, None]:
     if model_name not in AVAILABLE_MODELS.get("google_ai", []):
         logger.error(f"Attempted to use unconfigured or filtered Google AI model: {model_name}")
-        raise HTTPException(status_code=400, detail=f"Invalid, unavailable, or filtered Google AI model selected: {model_name}")
+        yield f"Error: Invalid, unavailable, or filtered Google AI model selected: {model_name}"
+        return
 
-    logger.info(f"Sending {len(text_to_summarize)} chars to Google AI ({model_name}) for {'question answering' if question else 'summarization'}...")
+    logger.info(f"Streaming from Google AI ({model_name}) for {'question answering' if question else 'summarization'}...")
     try:
         full_model_name = f"models/{model_name}"
         model = genai.GenerativeModel(full_model_name)
         generation_config = genai.types.GenerationConfig(temperature=0.7, top_p=0.9, top_k=40)
-        safety_settings = {} 
+        safety_settings = {}
 
         if question:
             prompt = f"""You are a helpful assistant. Based ONLY on the following chat log excerpts from {start_date_str} to {end_date_str}, answer the user's question accurately. If the answer cannot be determined from the provided text, explicitly state that the information is not available in the chat log for the given period. Do not make up information or answer based on external knowledge. Use Markdown for formatting (like bullet points, headings or bold text) where appropriate.
@@ -117,7 +119,6 @@ async def _call_google_ai(
 User's Question: {question}
 
 Answer:"""
-            logger.debug(f"Google AI Question Prompt (first 100 chars): {prompt[:100]}...")
         else:
             prompt = f"""You are a helpful assistant that summarizes chat conversations concisely. For group conversations, you summarize them under various categories. If the chat messages are related to shopping deals, categorize them into appropriate item categories, highlighting best deals and include the links for the deals if present in the messages. The messages are from the period between {start_date_str} and {end_date_str}. Use Markdown for formatting (like bullet points, headings or bold text) where appropriate.
 
@@ -126,136 +127,98 @@ Answer:"""
 --- CHAT LOG END ---
 
 Summary:"""
-            logger.debug(f"Google AI Summary Prompt (first 100 chars): {prompt[:100]}...")
 
-
-        response = await model.generate_content_async(
+        response_stream = await model.generate_content_async(
             prompt,
             generation_config=generation_config,
-            safety_settings=safety_settings
+            safety_settings=safety_settings,
+            stream=True
         )
 
-        try:
-            result_text = response.text.strip()
-            if not result_text:
-                 if response.prompt_feedback and response.prompt_feedback.block_reason:
-                     block_reason = response.prompt_feedback.block_reason.name
-                     logger.warning(f"Google AI response blocked ({model_name}) due to safety settings: {block_reason}")
-                     raise HTTPException(status_code=400, detail=f"Content blocked by safety filter: {block_reason}. Cannot generate result.")
-                 elif response.candidates and response.candidates[0].finish_reason != generation_types.FinishReason.STOP:
-                      finish_reason = response.candidates[0].finish_reason.name
-                      logger.warning(f"Google AI generation stopped unexpectedly ({model_name}): {finish_reason}")
-                      raise HTTPException(status_code=500, detail=f"AI generation failed with reason: {finish_reason}")
-                 else:
-                      logger.warning(f"Google AI ({model_name}) returned an empty result without explicit blocking.")
-                      result_text = "The AI model returned an empty result."
-            return result_text
-        except ValueError as val_err: 
-             block_reason_str = "Unknown"
-             try: 
-                 if response.prompt_feedback and response.prompt_feedback.block_reason:
-                     block_reason_str = response.prompt_feedback.block_reason.name
-             except Exception: pass
-             logger.error(f"Google AI Value Error ({model_name}, likely prompt blocked: {block_reason_str}): {val_err}", exc_info=True)
-             raise HTTPException(status_code=400, detail=f"Content blocked by safety filter ({block_reason_str}) or invalid request. Cannot generate result.")
-        except generation_types.StopCandidateException as stop_ex: 
-            finish_reason = "Unknown"
-            if hasattr(stop_ex, 'finish_reason') and stop_ex.finish_reason: 
-                 finish_reason = stop_ex.finish_reason.name
-            logger.warning(f"Google AI generation stopped unexpectedly ({model_name}): {finish_reason}", exc_info=True)
-            try: 
-                partial_result = response.text.strip() if response.text else ""
-                if partial_result:
-                    logger.warning("Using potentially incomplete result due to stop reason.")
-                    return partial_result + f"\n\n[Note: Result may be incomplete due to generation stopping early ({finish_reason})]"
-            except Exception:
-                pass 
-            raise HTTPException(status_code=500, detail=f"AI generation stopped unexpectedly ({finish_reason}).")
+        async for chunk in response_stream:
+            try:
+                if chunk.text:
+                    yield chunk.text
+            except ValueError:
+                # Handle cases where the chunk might be blocked
+                logger.warning(f"A chunk was blocked by Google AI safety settings. Full response may be incomplete.")
+                yield "[Content-Blocked-By-AI]"
+            except Exception as e:
+                logger.error(f"Error processing a streaming chunk from Google AI: {e}", exc_info=True)
+                yield f"[Error-Processing-Chunk: {e}]"
 
-
-    except generation_types.BlockedPromptException as bpe:
-        logger.error(f"Google AI API Error ({model_name}): Prompt Blocked - {bpe}", exc_info=True)
-        raise HTTPException(status_code=400, detail="Content blocked by safety filter before generation. Cannot generate result.")
     except Exception as e:
-        if "model" in str(e).lower() and "not found" in str(e).lower(): 
-            logger.error(f"Google AI API reported model '{model_name}' not found: {e}", exc_info=True)
-            raise HTTPException(status_code=404, detail=f"The selected Google AI model ('{model_name}') was not found by the API.")
-        logger.error(f"Error calling Google AI ({model_name}) or processing its response: {e}", exc_info=True)
-        raise HTTPException(status_code=502, detail=f"Failed to get result from Google AI service ({model_name}).")
+        logger.error(f"Error calling Google AI streaming API ({model_name}): {e}", exc_info=True)
+        yield f"\n\n**Error:** Failed to get a streaming response from the Google AI service. Details: {str(e)}"
 
 
-async def _call_lm_studio(
+async def _call_lm_studio_stream(
     model_name: str,
     text_to_summarize: str,
     start_date_str: str,
     end_date_str: str,
     question: Optional[str] = None
-) -> str:
+) -> AsyncGenerator[str, None]:
     if model_name not in AVAILABLE_MODELS.get("lm_studio", []):
         logger.error(f"Attempted to use unconfigured LM Studio model: {model_name}")
-        raise HTTPException(status_code=400, detail=f"Invalid or unconfigured LM Studio model selected: {model_name}")
+        yield f"Error: Invalid or unconfigured LM Studio model selected: {model_name}"
+        return
     
-    if not LM_STUDIO_URL: 
-         logger.error(f"LM Studio URL not available/configured when trying to call model {model_name}")
-         raise HTTPException(status_code=500, detail="LM Studio provider URL not configured on the server.")
+    if not LM_STUDIO_URL:
+        logger.error(f"LM Studio URL not available/configured when trying to stream model {model_name}")
+        yield "Error: LM Studio provider URL not configured on the server."
+        return
 
     chat_completions_url = LM_STUDIO_URL
+    logger.info(f"Streaming from LM Studio ({model_name}) for {'question answering' if question else 'summarization'}...")
 
-    logger.info(f"Sending {len(text_to_summarize)} chars to LM Studio ({model_name} at {chat_completions_url}) for {'question answering' if question else 'summarization'}...")
+    system_content, user_content = "", ""
+    if question:
+        system_content = "You are a helpful assistant. Based ONLY on the following chat log, answer the user's question. If the answer is not in the log, say so. Do not make up information. Use Markdown for formatting (like bullet points, headings or bold text) where appropriate."
+        user_content = f"Chat log from {start_date_str} to {end_date_str}:\n---\n{text_to_summarize}\n---\n\nUser Question: {question}"
+    else:
+        system_content = "You are a helpful assistant that summarizes chat conversations concisely. For group conversations, you summarize them under various categories. If the chat messages are related to shopping deals, categorize them into appropriate item categories, and highlighting best deals and include the links for the deals. Use Markdown for formatting (like bullet points, headings or bold text) where appropriate."
+        user_content = f"Please summarize the following chat messages between {start_date_str} and {end_date_str}:\n\n---\n{text_to_summarize}\n---"
+
+    payload = {
+        "model": model_name,
+        "messages": [
+            {"role": "system", "content": system_content},
+            {"role": "system", "content": "/nothink"},
+            {"role": "user", "content": user_content}
+        ],
+        "temperature": 0.7,
+        "stream": True
+    }
+
     try:
-        system_content = ""
-        user_content = ""
-        if question:
-            system_content = "You are a helpful assistant. Based ONLY on the following chat log, answer the user's question. If the answer is not in the log, say so. Do not make up information. Use Markdown for formatting (like bullet points, headings or bold text) where appropriate."
-            user_content = f"Chat log from {start_date_str} to {end_date_str}:\n---\n{text_to_summarize}\n---\n\nUser Question: {question}"
-            logger.debug(f"LM Studio Question Prompt (User content starts): {user_content[:100]}...")
-        else:
-            system_content = "You are a helpful assistant that summarizes chat conversations concisely. For group conversations, you summarize them under various categories. If the chat messages are related to shopping deals, categorize them into appropriate item categories, and highlighting best deals and include the links for the deals. Use Markdown for formatting (like bullet points, headings or bold text) where appropriate."
-            user_content = f"Please summarize the following chat messages between {start_date_str} and {end_date_str}:\n\n---\n{text_to_summarize}\n---"
-            logger.debug(f"LM Studio Summary Prompt (User content starts): {user_content[:100]}...")
-
-        payload = {
-            "model": model_name,
-            "messages": [
-                {"role": "system", "content": system_content},
-                {"role": "system", "content": "/nothink"}, 
-                {"role": "user", "content": user_content}
-            ],
-            "max_tokens": 1024, 
-            "temperature": 0.7, 
-            "stream": False
-        }
-
-        async with httpx.AsyncClient(timeout=httpx.Timeout(180.0)) as client: 
-            response = await client.post(chat_completions_url, json=payload)
-            response.raise_for_status()
-            result = response.json()
-
-        result_text = ""
-        if 'choices' in result and isinstance(result['choices'], list) and len(result['choices']) > 0:
-            first_choice = result['choices'][0]
-            if 'message' in first_choice and isinstance(first_choice['message'], dict):
-                if 'content' in first_choice['message']:
-                    result_text = str(first_choice['message']['content']).strip()
-
-        if not result_text:
-             logger.warning(f"LM Studio response ({model_name}) did not contain content in the expected format. Result: %s", result)
-             result_text = "The AI model returned an empty or improperly formatted result."
-
-        return result_text
-
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            async with client.stream("POST", chat_completions_url, json=payload) as response:
+                if response.status_code != 200:
+                    error_text = await response.aread()
+                    logger.error(f"LM Studio service returned error {response.status_code}: {error_text.decode()}")
+                    yield f"\n\n**Error:** Language model service error ({response.status_code})."
+                    return
+                
+                async for line in response.aiter_lines():
+                    if line.startswith('data: '):
+                        line_content = line[6:]
+                        if line_content.strip() == '[DONE]':
+                            break
+                        try:
+                            chunk_data = json.loads(line_content)
+                            if chunk_data['choices'][0]['delta'].get('content'):
+                                yield chunk_data['choices'][0]['delta']['content']
+                        except json.JSONDecodeError:
+                            logger.warning(f"Could not decode JSON from LM Studio stream: {line_content}")
+                        except (KeyError, IndexError):
+                            logger.warning(f"Unexpected structure in LM Studio stream chunk: {line_content}")
     except httpx.TimeoutException:
         logger.error(f"Request to LM Studio ({model_name}) timed out.")
-        raise HTTPException(status_code=504, detail=f"Request to language model ({model_name}) timed out.")
-    except httpx.RequestError as e:
-         logger.error(f"Could not connect to LM Studio ({model_name}) at {chat_completions_url}: {e}", exc_info=True)
-         raise HTTPException(status_code=503, detail=f"Could not connect to language model service (LM Studio).")
-    except httpx.HTTPStatusError as e:
-         logger.error(f"LM Studio service ({model_name}) returned error {e.response.status_code}: {e.response.text}", exc_info=True)
-         raise HTTPException(status_code=502, detail=f"Language model service ({model_name}) error: {e.response.status_code}.")
-    except (KeyError, IndexError, Exception) as e: 
-        logger.error(f"Error processing LM Studio ({model_name}) response or other unexpected error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to process request via LM Studio ({model_name}).")
+        yield "\n\n**Error:** Request to the language model timed out."
+    except Exception as e:
+        logger.error(f"Error streaming from LM Studio ({model_name}): {e}", exc_info=True)
+        yield f"\n\n**Error:** Failed to get a streaming response from the LM Studio service. Details: {str(e)}"
 
 
 @asynccontextmanager
@@ -413,7 +376,7 @@ class AnalyzeRequest(BaseModel):
 async def prepare_analysis(req: PrepareAnalysisRequest):
     client = get_client(req.backend)
     messages: List[StandardMessage] = await client.get_messages(
-        req.userId, req.chatId, req.startDate, req.endDate, enable_caching=req.enableCaching
+        req.userId, req.chatId, req.startDate, req.endDate, enable_caching=req.enableCaching if req.enableCaching is not None else True
     )
     
     if not messages:
@@ -427,35 +390,46 @@ async def prepare_analysis(req: PrepareAnalysisRequest):
     }
 
 @router_api.post("/analyze")
-async def analyze_text(req: AnalyzeRequest):
+async def analyze_text_stream(req: AnalyzeRequest):
     selected_provider = None
     if req.modelName in AVAILABLE_MODELS.get("google_ai", []):
         selected_provider = "google_ai"
     elif req.modelName in AVAILABLE_MODELS.get("lm_studio", []):
         selected_provider = "lm_studio"
     else:
-        raise HTTPException(status_code=400, detail=f"Selected model '{req.modelName}' is not available.")
+        # We can't use HTTPException here as it's not a valid generator response
+        # Instead, we'll have a generator that yields an error message.
+        async def error_generator():
+            yield f"Error: Selected model '{req.modelName}' is not available."
+        return StreamingResponse(error_generator(), media_type="text/plain", status_code=400)
 
-    ai_result = ""
-    try:
-        if selected_provider == 'google_ai':
-            ai_result = await _call_google_ai(req.modelName, req.textToProcess, req.startDate, req.endDate, req.question)
-        elif selected_provider == 'lm_studio':
-            ai_result = await _call_lm_studio(req.modelName, req.textToProcess, req.startDate, req.endDate, req.question)
-    except Exception as e:
-        if not isinstance(e, HTTPException):
-            logger.error(f"AI call failed for model {req.modelName}: {e}", exc_info=True)
-            raise HTTPException(status_code=502, detail=f"Failed to get response from AI service: {e}")
-        raise e
+    async def stream_generator():
+        try:
+            if selected_provider == 'google_ai':
+                stream = _call_google_ai_stream(
+                    req.modelName, req.textToProcess, req.startDate, req.endDate, req.question
+                )
+            else: # lm_studio
+                stream = _call_lm_studio_stream(
+                    req.modelName, req.textToProcess, req.startDate, req.endDate, req.question
+                )
+            
+            async for chunk in stream:
+                yield chunk
 
-    return {"ai_summary": ai_result}
+        except Exception as e:
+            logger.error(f"Unhandled error in streaming generator for model {req.modelName}: {e}", exc_info=True)
+            yield f"\n\n**Fatal Error:** An unexpected error occurred during the analysis stream. Please check the server logs."
+
+    return StreamingResponse(stream_generator(), media_type="text/event-stream")
     
 @router_api.post("/logout")
 async def logout(req: dict):
     backend = req.get("backend")
     user_id = req.get("userId")
-    if not all([backend, user_id]):
-        raise HTTPException(status_code=400, detail="Backend and userId are required.")
+    if not backend or not isinstance(backend, str) or not user_id or not isinstance(user_id, str):
+        raise HTTPException(status_code=400, detail="Backend and userId are required and must be strings.")
+    
     client = get_client(backend)
     await client.logout(user_id)
     return {"status": "success", "message": "Logout successful."}

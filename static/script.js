@@ -457,7 +457,7 @@ async function handleGetSummary() {
         return;
     }
 
-    // --- Step 2: Execute the analysis (call AI) ---
+    // --- Step 2: Execute the analysis (call AI and stream response) ---
     const analyzeRequestBody = {
         modelName: modelSelect.value,
         textToProcess: text_to_process,
@@ -466,22 +466,46 @@ async function handleGetSummary() {
         question: askQuestionToggle.checked ? questionInput.value.trim() : null
     };
 
+    // Prepare UI for streaming
+    resultsTitle.textContent = analyzeRequestBody.question ? 'Answer' : 'Summary';
+    summaryMeta.textContent = `Analyzing ${num_messages} message(s)...`;
+    summaryContent.innerHTML = '';
+    resultsContainer.style.display = 'block';
+    resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setLoadingState(getSummaryButton, true, `Analyzing ${num_messages} message(s)...`);
+
+    let fullResponseText = '';
+
     try {
-        const loadingText = `Analyzing ${num_messages} message(s)...`;
-        const analyzeData = await makeApiRequest('/api/analyze', {
+        const response = await fetch('/api/analyze', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(analyzeRequestBody)
-        }, config.timeouts.summary, getSummaryButton, loadingText);
+        });
 
-        resultsTitle.textContent = analyzeRequestBody.question ? 'Answer' : 'Summary';
-        summaryContent.innerHTML = marked.parse(analyzeData.ai_summary);
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Analysis failed: ${errorText}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            fullResponseText += chunk;
+            summaryContent.innerHTML = marked.parse(fullResponseText);
+        }
+
         summaryMeta.textContent = `Based on ${num_messages} message(s).`;
-        resultsContainer.style.display = 'block';
-        resultsContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
     } catch (error) {
-        if (dateError) dateError.textContent = error.message || 'Failed to get summary.';
+        summaryContent.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${error.message}</p>`;
+    } finally {
+        setLoadingState(getSummaryButton, false);
     }
 }
 
