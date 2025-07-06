@@ -1,6 +1,7 @@
 # Project specific
 cache/
 sessions/
+config.json
 
 # Logs
 *.log
