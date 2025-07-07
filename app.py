@@ -9,8 +9,6 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import uvicorn
-import google.generativeai as genai
-from google.generativeai.types import generation_types
 from fastapi import FastAPI, HTTPException, Query, Request, APIRouter
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
@@ -21,6 +19,7 @@ from typing import AsyncGenerator
 # Local imports from our new structure
 from clients.factory import get_client
 from clients.base_client import Message as StandardMessage
+from ai.factory import get_all_llm_clients
 
 # --- Basic Setup & Logging ---
 logging.basicConfig(
@@ -34,211 +33,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- Global Configuration & State ---
-AVAILABLE_MODELS: Dict[str, List[str]] = {
-    "google_ai": [],
-    "lm_studio": []
-}
-LM_STUDIO_URL = None
-GOOGLE_AI_CONFIG = {}
-LM_STUDIO_CONFIG = {}
-DEPRECATED_GOOGLE_MODELS = {"gemini-1.0-pro-vision-latest"}
-
-# --- AI Model Initialization & Calling Logic (Restored from original file) ---
-
-async def initialize_google_ai_models():
-    global AVAILABLE_MODELS, GOOGLE_AI_CONFIG
-    if not GOOGLE_AI_CONFIG.get('api_key'):
-        logger.warning("Google AI API key not configured. Models will be unavailable.")
-        AVAILABLE_MODELS["google_ai"] = []
-        return
-    try:
-        logger.info("Asynchronously listing Google AI models...")
-        models_iterator = await asyncio.to_thread(genai.list_models)
-        supported_models = []
-        for m in models_iterator:
-            model_name = m.name.replace("models/", "")
-            if 'generateContent' in m.supported_generation_methods and model_name not in DEPRECATED_GOOGLE_MODELS:
-                supported_models.append(model_name)
-        AVAILABLE_MODELS["google_ai"] = sorted(supported_models)
-        logger.info(f"Discovered usable Google AI models: {AVAILABLE_MODELS['google_ai']}")
-    except Exception as e:
-        logger.error(f"Failed to list models from Google AI: {e}", exc_info=True)
-        AVAILABLE_MODELS["google_ai"] = []
-
-async def initialize_lm_studio_models():
-    global LM_STUDIO_URL, AVAILABLE_MODELS, LM_STUDIO_CONFIG
-    if not LM_STUDIO_CONFIG or not LM_STUDIO_CONFIG.get('url'):
-        logger.warning("LM Studio URL not configured. Models will not be available.")
-        AVAILABLE_MODELS["lm_studio"] = []
-        return
-
-    LM_STUDIO_URL = LM_STUDIO_CONFIG['url']
-    models_url = LM_STUDIO_URL.replace('/v1/chat/completions', '/v1/models')
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            logger.info(f"Fetching LM Studio models from: {models_url}")
-            response = await client.get(models_url)
-            response.raise_for_status()
-            models_data = response.json()
-            model_ids = [model['id'] for model in models_data.get('data', []) if 'id' in model]
-            AVAILABLE_MODELS["lm_studio"] = sorted(list(set(model_ids)))
-            if AVAILABLE_MODELS["lm_studio"]:
-                logger.info(f"Discovered LM Studio models: {AVAILABLE_MODELS['lm_studio']}")
-            else:
-                logger.warning("LM Studio query successful but no models found.")
-    except Exception as e:
-        logger.error(f"Failed to fetch LM Studio models from {models_url}: {e}", exc_info=True)
-        AVAILABLE_MODELS["lm_studio"] = []
-
-async def _call_google_ai_stream(
-    model_name: str,
-    text_to_summarize: str,
-    start_date_str: str,
-    end_date_str: str,
-    question: Optional[str] = None
-) -> AsyncGenerator[str, None]:
-    if model_name not in AVAILABLE_MODELS.get("google_ai", []):
-        logger.error(f"Attempted to use unconfigured or filtered Google AI model: {model_name}")
-        yield f"Error: Invalid, unavailable, or filtered Google AI model selected: {model_name}"
-        return
-
-    logger.info(f"Streaming from Google AI ({model_name}) for {'question answering' if question else 'summarization'}...")
-    try:
-        full_model_name = f"models/{model_name}"
-        model = genai.GenerativeModel(full_model_name)
-        generation_config = genai.types.GenerationConfig(temperature=0.7, top_p=0.9, top_k=40)
-        safety_settings = {}
-
-        if question:
-            prompt = f"""You are a helpful assistant. Based ONLY on the following chat log excerpts from {start_date_str} to {end_date_str}, answer the user's question accurately. If the answer cannot be determined from the provided text, explicitly state that the information is not available in the chat log for the given period. Do not make up information or answer based on external knowledge. Use Markdown for formatting (like bullet points, headings or bold text) where appropriate.
-
---- CHAT LOG START ---
-{text_to_summarize}
---- CHAT LOG END ---
-
-User's Question: {question}
-
-Answer:"""
-        else:
-            prompt = f"""You are a helpful assistant that summarizes chat conversations concisely. For group conversations, you summarize them under various categories. If the chat messages are related to shopping deals, categorize them into appropriate item categories, highlighting best deals and include the links for the deals if present in the messages. The messages are from the period between {start_date_str} and {end_date_str}. Use Markdown for formatting (like bullet points, headings or bold text) where appropriate.
-
---- CHAT LOG START ---
-{text_to_summarize}
---- CHAT LOG END ---
-
-Summary:"""
-
-        response_stream = await model.generate_content_async(
-            prompt,
-            generation_config=generation_config,
-            safety_settings=safety_settings,
-            stream=True
-        )
-
-        async for chunk in response_stream:
-            try:
-                if chunk.text:
-                    yield chunk.text
-            except ValueError:
-                # Handle cases where the chunk might be blocked
-                logger.warning(f"A chunk was blocked by Google AI safety settings. Full response may be incomplete.")
-                yield "[Content-Blocked-By-AI]"
-            except Exception as e:
-                logger.error(f"Error processing a streaming chunk from Google AI: {e}", exc_info=True)
-                yield f"[Error-Processing-Chunk: {e}]"
-
-    except Exception as e:
-        logger.error(f"Error calling Google AI streaming API ({model_name}): {e}", exc_info=True)
-        yield f"\n\n**Error:** Failed to get a streaming response from the Google AI service. Details: {str(e)}"
-
-
-async def _call_lm_studio_stream(
-    model_name: str,
-    text_to_summarize: str,
-    start_date_str: str,
-    end_date_str: str,
-    question: Optional[str] = None
-) -> AsyncGenerator[str, None]:
-    if model_name not in AVAILABLE_MODELS.get("lm_studio", []):
-        logger.error(f"Attempted to use unconfigured LM Studio model: {model_name}")
-        yield f"Error: Invalid or unconfigured LM Studio model selected: {model_name}"
-        return
-    
-    if not LM_STUDIO_URL:
-        logger.error(f"LM Studio URL not available/configured when trying to stream model {model_name}")
-        yield "Error: LM Studio provider URL not configured on the server."
-        return
-
-    chat_completions_url = LM_STUDIO_URL
-    logger.info(f"Streaming from LM Studio ({model_name}) for {'question answering' if question else 'summarization'}...")
-
-    system_content, user_content = "", ""
-    if question:
-        system_content = "You are a helpful assistant. Based ONLY on the following chat log, answer the user's question. If the answer is not in the log, say so. Do not make up information. Use Markdown for formatting (like bullet points, headings or bold text) where appropriate."
-        user_content = f"Chat log from {start_date_str} to {end_date_str}:\n---\n{text_to_summarize}\n---\n\nUser Question: {question}"
-    else:
-        system_content = "You are a helpful assistant that summarizes chat conversations concisely. For group conversations, you summarize them under various categories. If the chat messages are related to shopping deals, categorize them into appropriate item categories, and highlighting best deals and include the links for the deals. Use Markdown for formatting (like bullet points, headings or bold text) where appropriate."
-        user_content = f"Please summarize the following chat messages between {start_date_str} and {end_date_str}:\n\n---\n{text_to_summarize}\n---"
-
-    payload = {
-        "model": model_name,
-        "messages": [
-            {"role": "system", "content": system_content},
-            {"role": "system", "content": "/nothink"},
-            {"role": "user", "content": user_content}
-        ],
-        "temperature": 0.7,
-        "stream": True
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            async with client.stream("POST", chat_completions_url, json=payload) as response:
-                if response.status_code != 200:
-                    error_text = await response.aread()
-                    logger.error(f"LM Studio service returned error {response.status_code}: {error_text.decode()}")
-                    yield f"\n\n**Error:** Language model service error ({response.status_code})."
-                    return
-                
-                async for line in response.aiter_lines():
-                    if line.startswith('data: '):
-                        line_content = line[6:]
-                        if line_content.strip() == '[DONE]':
-                            break
-                        try:
-                            chunk_data = json.loads(line_content)
-                            if chunk_data['choices'][0]['delta'].get('content'):
-                                yield chunk_data['choices'][0]['delta']['content']
-                        except json.JSONDecodeError:
-                            logger.warning(f"Could not decode JSON from LM Studio stream: {line_content}")
-                        except (KeyError, IndexError):
-                            logger.warning(f"Unexpected structure in LM Studio stream chunk: {line_content}")
-    except httpx.TimeoutException:
-        logger.error(f"Request to LM Studio ({model_name}) timed out.")
-        yield "\n\n**Error:** Request to the language model timed out."
-    except Exception as e:
-        logger.error(f"Error streaming from LM Studio ({model_name}): {e}", exc_info=True)
-        yield f"\n\n**Error:** Failed to get a streaming response from the LM Studio service. Details: {str(e)}"
+llm_clients = {}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Application startup: Initializing...")
-    global GOOGLE_AI_CONFIG, LM_STUDIO_CONFIG
+    global llm_clients
     try:
         with open('config.json', 'r') as f:
             config = json.load(f)
-        GOOGLE_AI_CONFIG = config.get('google_ai', {})
-        LM_STUDIO_CONFIG = config.get('lm_studio', {})
-        if GOOGLE_AI_CONFIG.get('api_key'):
-            genai.configure(api_key=GOOGLE_AI_CONFIG['api_key'])
+        google_ai_config = config.get('google_ai', {})
+        lm_studio_config = config.get('lm_studio', {})
+        llm_clients = get_all_llm_clients(google_ai_config, lm_studio_config)
+        
+        initialization_tasks = [client.initialize_models() for client in llm_clients.values()]
+        await asyncio.gather(*initialization_tasks)
+
     except FileNotFoundError:
         logger.error("config.json not found!")
     
-    await asyncio.gather(
-        initialize_google_ai_models(),
-        initialize_lm_studio_models()
-    )
     yield
     logger.info("Application shutdown.")
 
@@ -317,25 +131,23 @@ async def webex_callback(code: str, request: Request):
 # ===================================================================
 @router_api.get("/models")
 async def get_models():
-    if not AVAILABLE_MODELS["google_ai"] and not AVAILABLE_MODELS["lm_studio"]:
-         raise HTTPException(status_code=500, detail="No AI models configured or loaded successfully.")
-
-    # Determine the default model for each provider
-    default_google = GOOGLE_AI_CONFIG.get("default_model")
-    default_lm_studio = LM_STUDIO_CONFIG.get("default_model")
+    all_models = {}
+    default_models = {}
     
-    # A default is only valid if it's in the list of available models
-    valid_default_google = default_google if default_google in AVAILABLE_MODELS["google_ai"] else None
-    valid_default_lm_studio = default_lm_studio if default_lm_studio in AVAILABLE_MODELS["lm_studio"] else None
+    for provider, client in llm_clients.items():
+        models = client.get_available_models()
+        all_models[f"{provider}_models"] = models
+        
+        default_model = client.get_default_model()
+        if default_model and default_model in models:
+            default_models[provider] = default_model
+        else:
+            default_models[provider] = None
 
-    return {
-        "google_ai_models": AVAILABLE_MODELS["google_ai"],
-        "lm_studio_models": AVAILABLE_MODELS["lm_studio"],
-        "default_models": {
-            "google_ai": valid_default_google,
-            "lm_studio": valid_default_lm_studio
-        }
-    }
+    if not any(all_models.values()):
+        raise HTTPException(status_code=500, detail="No AI models configured or loaded successfully.")
+
+    return {**all_models, "default_models": default_models}
 
 @router_api.get("/session-status")
 async def get_session_status(backend: str, user_id: str):
@@ -392,31 +204,26 @@ async def prepare_analysis(req: PrepareAnalysisRequest):
 @router_api.post("/analyze")
 async def analyze_text_stream(req: AnalyzeRequest):
     selected_provider = None
-    if req.modelName in AVAILABLE_MODELS.get("google_ai", []):
-        selected_provider = "google_ai"
-    elif req.modelName in AVAILABLE_MODELS.get("lm_studio", []):
-        selected_provider = "lm_studio"
-    else:
-        # We can't use HTTPException here as it's not a valid generator response
-        # Instead, we'll have a generator that yields an error message.
+    client = None
+
+    for provider, llm_client in llm_clients.items():
+        if req.modelName in llm_client.get_available_models():
+            selected_provider = provider
+            client = llm_client
+            break
+
+    if not client:
         async def error_generator():
             yield f"Error: Selected model '{req.modelName}' is not available."
         return StreamingResponse(error_generator(), media_type="text/plain", status_code=400)
 
     async def stream_generator():
         try:
-            if selected_provider == 'google_ai':
-                stream = _call_google_ai_stream(
-                    req.modelName, req.textToProcess, req.startDate, req.endDate, req.question
-                )
-            else: # lm_studio
-                stream = _call_lm_studio_stream(
-                    req.modelName, req.textToProcess, req.startDate, req.endDate, req.question
-                )
-            
+            stream = client.call_streaming(
+                req.modelName, req.textToProcess, req.startDate, req.endDate, req.question
+            )
             async for chunk in stream:
                 yield chunk
-
         except Exception as e:
             logger.error(f"Unhandled error in streaming generator for model {req.modelName}: {e}", exc_info=True)
             yield f"\n\n**Fatal Error:** An unexpected error occurred during the analysis stream. Please check the server logs."
