@@ -44,8 +44,8 @@ async def lifespan(app: FastAPI):
         with open('config.json', 'r') as f:
             config = json.load(f)
         google_ai_config = config.get('google_ai', {})
-        lm_studio_config = config.get('lm_studio', {})
-        llm_clients = get_all_llm_clients(google_ai_config, lm_studio_config)
+        openai_compatible_configs = config.get('openai_compatible', [])
+        llm_clients = get_all_llm_clients(google_ai_config, openai_compatible_configs)
         
         initialization_tasks = [client.initialize_models() for client in llm_clients.values()]
         await asyncio.gather(*initialization_tasks)
