@@ -251,3 +251,11 @@ You can be logged into both Telegram and Webex at the same time.
 ### Logging Out
 
 -   Clicking **"Logout"** will log you out of the currently active service. If you are logged into another service, the application will automatically switch to it. If not, you will be returned to the main login page.
+
+
+### Publishing images:
+
+```
+docker buildx create --name mybuilder --driver docker-container --use
+docker buildx build --platform linux/arm64,linux/amd64 -t vikrant82/chat-analyzer:latest -t vikrant82/chat-analyzer:1.0 --push .
+```

@@ -3,44 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-Backend Chat Analyzer</title>
-    <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.css" rel="stylesheet">
+    <title>Chat Analyzer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.bootstrap5.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litepicker/dist/css/litepicker.css"/>
     <link rel="stylesheet" href="/static/style.css">
-    <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
-        .container { max-width: 800px; margin: 20px auto; padding: 20px; background-color: white; box-shadow: 0 0 10px rgba(0,0,0,0.1); border-radius: 8px; }
-        h1, h2 { color: #0366d6; margin-top: 0; }
-        .form-group { margin-bottom: 20px; }
-        label { display: block; margin-bottom: 8px; font-weight: 500; }
-        input[type="text"], input[type="tel"], input[type="date"], input[type="password"], select, button, textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px; box-sizing: border-box; margin-bottom: 5px; }
-        textarea { min-height: 80px; resize: vertical; }
-        .checkbox-group { display: flex; align-items: center; margin-bottom: 15px; gap: 8px; }
-        .checkbox-group input[type="checkbox"] { width: auto; margin-bottom: 0; }
-        .checkbox-group label { margin-bottom: 0; font-weight: normal; }
-        button { background-color: #0366d6; color: white; border: none; cursor: pointer; transition: background-color 0.3s; font-weight: bold; }
-        button:hover:not(:disabled) { background-color: #0256a3; }
-        button:disabled { background-color: #cccccc; cursor: not-allowed; opacity: 0.7; }
-        .error-message { color: #d73a49; font-size: 14px; margin-top: 5px; min-height: 1em; }
-        .date-range { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; }
-        .date-input { flex: 1; min-width: 150px; }
-        .section { display: none; }
-        .section.active { display: block; }
-        .button-group { display: flex; gap: 10px; flex-wrap: wrap; }
-        .footer-actions { margin-top: 20px; display: flex; gap: 10px; }
-        #summaryContent { padding: 15px; background-color: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 6px; line-height: 1.6; margin-bottom: 15px; }
-        /* Style for the chat refresh link */
-        .chat-label-group { display: flex; justify-content: space-between; align-items: center; }
-        #refreshChatsLink { font-size: 12px; cursor: pointer; color: #0366d6; text-decoration: underline; }
-        #lastUpdatedTime { font-size: 12px; color: #6a737d; }
-        /* Modal for switching service */
-        .modal { display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); }
-        .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 400px; border-radius: 8px; text-align: center;}
-        .modal-content h3 { margin-top: 0; }
-        .modal-content button { margin-top: 10px; }
-        .ts-control, #dateRangePicker { padding: 10px !important; font-size: 16px !important; }
-        #dateRangePicker { cursor: pointer; }
-    </style>
 </head>
 <body>
     <div class="container">
@@ -48,7 +17,7 @@
 
         <!-- Login Section -->
         <div id="loginSection" class="section">
-            <h2>Login to a Service</h2>
+            <h2>Login</h2>
             <div class="form-group">
                 <label for="backendSelect">Chat Service:</label>
                 <select id="backendSelect">
@@ -64,7 +33,7 @@
                 <button type="button" id="loginSubmitButton">Send Code</button>
             </form>
             <div id="webexLoginContainer" style="display: none;">
-                 <button type="button" id="webexLoginButton">Login with Webex</button>
+                <button type="button" id="webexLoginButton">Login with Webex</button>
             </div>
             <div id="loginError" class="error-message"></div>
         </div>
@@ -72,16 +41,16 @@
         <!-- Verification Section -->
         <div id="verificationSection" class="section">
             <h2>Verification</h2>
-            <p>Enter the code sent to your Telegram account.</p>
+            <p>Enter the code sent to your Telegram account. If you have 2-Factor Authentication enabled, you will also be prompted for your password.</p>
             <div class="form-group">
                 <label for="verificationCode">Verification Code:</label>
                 <input type="text" id="verificationCode" required>
             </div>
              <div class="form-group" id="passwordField" style="display: none;">
-                <label for="password">Password (2FA):</label>
-                <input type="password" id="password">
+                <label for="password">Password (2FA)</label>
+                <input type="password" id="password" placeholder="Enter your 2FA password">
             </div>
-            <button type="button" id="verifyButton">Verify Code</button>
+            <button type="button" id="verifyButton">Verify</button>
             <div id="verificationError" class="error-message"></div>
         </div>
 
@@ -113,7 +82,7 @@
             </div>
             <div class="form-group checkbox-group">
                 <input type="checkbox" id="cacheChatsToggle" checked>
-                <label for="cacheChatsToggle">Cache fetched chats for future analyses</label>
+                <label for="cacheChatsToggle">Enable caching for faster analysis</label>
             </div>
             <div id="questionInputContainer" class="form-group" style="display: none;">
                 <label for="questionInput">Your Question:</label>
@@ -125,20 +94,19 @@
             </div>
 
             <!-- In-page results container -->
-            <div id="resultsContainer" style="display: none; margin-top: 25px; border-top: 1px solid #ddd; padding-top: 20px;">
+            <div id="resultsContainer" style="display: none;">
                 <h2 id="resultsTitle">Summary</h2>
                 <div id="summaryMeta"></div>
                 <div id="summaryContent">
-                    <p>Results will appear here...</p>
+                    <!-- Streaming results will appear here -->
                 </div>
             </div>
 
             <div class="footer-actions">
-                <button id="switchServiceButton" type="button" style="background-color: #17a2b8;">Switch Service</button>
-                <button id="logoutButton" type="button" style="background-color: #d73a49;">Logout</button>
+                <button id="switchServiceButton" type="button">Switch Service</button>
+                <button id="logoutButton" type="button">Logout</button>
             </div>
         </div>
-
     </div>
 
     <!-- Switch Service Modal -->

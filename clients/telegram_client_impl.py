@@ -131,7 +131,7 @@ class TelegramClientImpl(ChatClient):
 
     async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str, enable_caching: bool = True) -> List[Message]:
         start_dt = datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
-        end_dt = datetime.strptime(end_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        end_dt = datetime.strptime(end_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc) + timedelta(days=1, microseconds=-1)
         today_dt = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         
         all_messages = []
@@ -158,9 +158,9 @@ class TelegramClientImpl(ChatClient):
 
         if dates_to_fetch_from_api:
             fetch_start = dates_to_fetch_from_api[0]
-            fetch_end_exclusive = dates_to_fetch_from_api[-1] + timedelta(days=1)
-            
-            logger.info(f"Cache MISS for Telegram chat {chat_id}. Fetching range from API.")
+            fetch_end = dates_to_fetch_from_api[-1] + timedelta(days=1, microseconds=-1)
+
+            logger.info(f"Cache MISS for Telegram chat {chat_id}. Fetching from {fetch_start.date()} to {fetch_end.date()}.")
 
             newly_fetched_messages = []
             async with telegram_api_client(user_identifier) as client:
@@ -173,12 +173,10 @@ class TelegramClientImpl(ChatClient):
                     logger.error(f"Error resolving entity '{chat_id}': {e}", exc_info=True)
                     return []
 
-                async for message in client.iter_messages(
-                    target_entity,
-                    offset_date=fetch_end_exclusive,
-                    reverse=False
-                ):
-                    if message.date < fetch_start:
+                async for message in client.iter_messages(target_entity, limit=None):
+                    if message.date.replace(tzinfo=timezone.utc) > fetch_end:
+                        continue
+                    if message.date.replace(tzinfo=timezone.utc) < fetch_start:
                         break
                     if message.text:
                         sender = await message.get_sender()
