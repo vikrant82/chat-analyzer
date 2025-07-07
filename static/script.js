@@ -549,7 +549,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (chatSelect) {
         tomSelectInstance = new TomSelect(chatSelect, {
             create: false,
-            placeholder: 'Select or search for a chat...'
+            placeholder: 'Select or search for a chat...',
+            theme: 'bootstrap5'
         });
         tomSelectInstance.disable(); // Start as disabled until chats are loaded
         tomSelectInstance.on('change', updateSummaryButtonState);

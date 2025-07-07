@@ -79,7 +79,7 @@ class WebexClientImpl(ChatClient):
 
     async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str, enable_caching: bool = True) -> List[Message]:
         start_dt = datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
-        end_dt = datetime.strptime(end_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        end_dt = datetime.strptime(end_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc) + timedelta(days=1, microseconds=-1)
         today_dt = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
         all_messages = []
