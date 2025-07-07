@@ -13,10 +13,19 @@
   },
   "google_ai": {
     "api_key": "YOUR_GOOGLE_AI_API_KEY",
-    "default_model": "gemini-2.5-flash" 
+    "default_model": "gemini-1.5-flash"
   },
-  "lm_studio": {
-    "url": "http://localhost:1234/v1/chat/completions",
-    "default_model": "qwen3-30b-a3b-128kF"
-  }
+  "openai_compatible": [
+    {
+      "name": "LM Studio",
+      "url": "http://localhost:1234/v1/chat/completions",
+      "default_model": "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF"
+    },
+    {
+      "name": "Perplexity",
+      "url": "https://api.perplexity.ai/chat/completions",
+      "api_key": "YOUR_PERPLEXITY_API_KEY",
+      "default_model": "llama-3-sonar-large-32k-online"
+    }
+  ]
 }

@@ -384,31 +384,34 @@ async function loadModels() {
     try {
         const data = await makeApiRequest('/api/models', { method: 'GET' }, config.timeouts.loadModels);
         if (modelSelect) modelSelect.innerHTML = '';
-        const addOptions = (models, groupLabel) => {
-            if (models && models.length > 0) {
-                const optgroup = document.createElement('optgroup');
-                optgroup.label = groupLabel;
-                models.forEach(modelName => {
-                    const option = document.createElement('option');
-                    option.value = modelName;
-                    option.textContent = modelName;
-                    optgroup.appendChild(option);
-                });
-                if (modelSelect) modelSelect.appendChild(optgroup);
+        Object.keys(data).forEach(key => {
+            if (key.endsWith('_models')) {
+                const models = data[key];
+                const providerName = key.replace('_models', '').replace('_', ' ');
+                const groupLabel = providerName.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+                
+                if (models && models.length > 0) {
+                    const optgroup = document.createElement('optgroup');
+                    optgroup.label = groupLabel;
+                    models.forEach(modelName => {
+                        const option = document.createElement('option');
+                        option.value = modelName;
+                        option.textContent = modelName;
+                        optgroup.appendChild(option);
+                    });
+                    if (modelSelect) modelSelect.appendChild(optgroup);
+                }
             }
-        };
-        addOptions(data.google_ai_models, "Google AI Models");
-        addOptions(data.lm_studio_models, "LM Studio Models");
-        
+        });
+
         if (modelSelect && modelSelect.options.length > 0) {
             modelSelect.disabled = false;
             appState.modelsLoaded = true;
-            const defaultGoogle = data.default_models?.google_ai;
-            const defaultLmStudio = data.default_models?.lm_studio;
-            if (defaultGoogle && modelSelect.querySelector(`option[value="${defaultGoogle}"]`)) {
-                modelSelect.value = defaultGoogle;
-            } else if (defaultLmStudio && modelSelect.querySelector(`option[value="${defaultLmStudio}"]`)) {
-                modelSelect.value = defaultLmStudio;
+            // Set default model if available
+            const defaultModels = data.default_models || {};
+            const firstDefault = Object.values(defaultModels).find(model => model && modelSelect.querySelector(`option[value="${model}"]`));
+            if (firstDefault) {
+                modelSelect.value = firstDefault;
             }
         } else {
             if (modelError) modelError.textContent = 'No AI models available.';
