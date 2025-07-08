@@ -2,7 +2,8 @@
 const appState = {
     isProcessing: false,
     activeBackend: null,
-    userIdentifiers: { telegram: null, webex: null },
+    userIdentifiers: { telegram: null, webex: null }, // This will now be used for internal state, not for API calls
+    sessionToken: null,
     activeSection: 'login',
     modelsLoaded: false,
     chatListStatus: { telegram: 'unloaded', webex: 'unloaded' }, // 'unloaded', 'loading', 'loaded'
@@ -12,7 +13,8 @@ const CACHE_CHATS_KEY = 'chat_analyzer_cache_chats_enabled';
 
 // Namespaced Local Storage Keys
 const ACTIVE_BACKEND_KEY = 'chat_analyzer_active_backend';
-const getUserIdKey = (backend) => `chat_analyzer_${backend}_user_id`;
+const getUserIdKey = (backend) => `chat_analyzer_${backend}_user_id`; // Kept for Webex which doesn't use tokens
+const SESSION_TOKEN_KEY = 'chat_analyzer_session_token';
 
 const config = {
     timeouts: {
@@ -124,6 +126,14 @@ async function makeApiRequest(url, options, timeoutDuration, elementToLoad = nul
     appState.isProcessing = true;
     if (elementToLoad) setLoadingState(elementToLoad, true, loadingText);
 
+    // Add the Authorization header if a token exists
+    if (appState.sessionToken) {
+        if (!options.headers) {
+            options.headers = {};
+        }
+        options.headers['Authorization'] = `Bearer ${appState.sessionToken}`;
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
     options.signal = controller.signal;
@@ -218,33 +228,37 @@ function openSwitchServiceModal() {
 }
 
 async function switchService(newBackend) {
-    const storedUserId = localStorage.getItem(getUserIdKey(newBackend));
-    if (storedUserId) {
-        try {
-            await makeApiRequest(`/api/session-status?backend=${newBackend}&user_id=${encodeURIComponent(storedUserId)}`, {method: 'GET'}, 10000);
-            
-            appState.activeBackend = newBackend;
-            appState.userIdentifiers[newBackend] = storedUserId;
-            localStorage.setItem(ACTIVE_BACKEND_KEY, newBackend);
-            
-            if (appState.chatListStatus[newBackend] !== 'loaded') {
-                 if (tomSelectInstance) {
-                    tomSelectInstance.clear();
-                    tomSelectInstance.clearOptions();
-                    tomSelectInstance.settings.placeholder = 'Loading chats...';
-                    tomSelectInstance.refreshOptions(false);
-                    tomSelectInstance.disable();
-                 }
-                 if (lastUpdatedTime) lastUpdatedTime.textContent = '';
+    // Webex uses the old flow, Telegram uses the new token flow
+    if (newBackend === 'webex') {
+        const storedUserId = localStorage.getItem(getUserIdKey(newBackend));
+        if (storedUserId) {
+            try {
+                // This Webex endpoint doesn't use the token, so we call it directly
+                await fetch(`/api/session-status?backend=webex&user_id=${encodeURIComponent(storedUserId)}`, { method: 'GET' });
+                appState.activeBackend = newBackend;
+                appState.userIdentifiers.webex = storedUserId;
+                localStorage.setItem(ACTIVE_BACKEND_KEY, newBackend);
+                showSection('chat');
+                return;
+            } catch (error) {
+                localStorage.removeItem(getUserIdKey(newBackend));
             }
-            
+        }
+    } else if (newBackend === 'telegram' && appState.sessionToken) {
+        try {
+            // The token is sent via the header in makeApiRequest
+            await makeApiRequest(`/api/session-status?backend=telegram`, { method: 'GET' }, 10000);
+            appState.activeBackend = newBackend;
+            localStorage.setItem(ACTIVE_BACKEND_KEY, newBackend);
             showSection('chat');
             return;
         } catch (error) {
-            localStorage.removeItem(getUserIdKey(newBackend));
+            // Token is invalid, clear it and go to login
+            appState.sessionToken = null;
+            localStorage.removeItem(SESSION_TOKEN_KEY);
         }
     }
-    
+
     appState.activeBackend = newBackend;
     showSection('login');
 }
@@ -280,11 +294,10 @@ async function handleVerify() {
     
     try {
         const data = await makeApiRequest(`/api/telegram/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, code, password }) }, config.timeouts.verify, verifyButton);
-        if (data.status === 'success') {
-            const userId = data.user_identifier;
-            appState.userIdentifiers.telegram = userId;
+        if (data.status === 'success' && data.token) {
+            appState.sessionToken = data.token;
             appState.activeBackend = 'telegram';
-            localStorage.setItem(getUserIdKey('telegram'), userId);
+            localStorage.setItem(SESSION_TOKEN_KEY, data.token);
             localStorage.setItem(ACTIVE_BACKEND_KEY, 'telegram');
             showSection('chat');
         } else if (data.status === 'password_required') {
@@ -298,12 +311,25 @@ async function handleVerify() {
 
 async function handleFullLogout() {
     const backend = appState.activeBackend;
-    const userId = appState.userIdentifiers[backend];
 
-    if (backend && userId) {
-        await makeApiRequest('/api/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ backend, userId }) }, config.timeouts.logout, logoutButton);
-        localStorage.removeItem(getUserIdKey(backend));
-        appState.userIdentifiers[backend] = null;
+    if (backend) {
+        // The backend is now a query parameter, and the body is empty
+        const url = `/api/logout?backend=${backend}`;
+        // For Webex, we also need to add the user_id to the query
+        const finalUrl = backend === 'webex' 
+            ? `${url}&user_id=${encodeURIComponent(appState.userIdentifiers.webex)}`
+            : url;
+
+        await makeApiRequest(finalUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }, config.timeouts.logout, logoutButton);
+        
+        if (backend === 'telegram') {
+            localStorage.removeItem(SESSION_TOKEN_KEY);
+            appState.sessionToken = null;
+        } else if (backend === 'webex') {
+            localStorage.removeItem(getUserIdKey('webex'));
+            appState.userIdentifiers.webex = null;
+        }
+
         appState.chatListStatus[backend] = 'unloaded';
         if (tomSelectInstance) {
             tomSelectInstance.clear();
@@ -331,11 +357,18 @@ async function handleFullLogout() {
 async function handleLoadChats() {
     const backend = appState.activeBackend;
     if (!backend || !tomSelectInstance) return;
-    const userId = appState.userIdentifiers[backend];
-    if (!userId) {
-        if (chatLoadingError) chatLoadingError.textContent = "No user session active.";
+    
+    // Authorization is now handled by the token in the header for Telegram
+    if (backend === 'telegram' && !appState.sessionToken) {
+         if (chatLoadingError) chatLoadingError.textContent = "No user session active.";
         return;
-    };
+    }
+    // Webex still needs the user ID
+    if (backend === 'webex' && !appState.userIdentifiers.webex) {
+         if (chatLoadingError) chatLoadingError.textContent = "No user session active.";
+        return;
+    }
+
     appState.chatListStatus[backend] = 'loading';
     tomSelectInstance.clear();
     tomSelectInstance.clearOptions();
@@ -345,7 +378,12 @@ async function handleLoadChats() {
     updateSummaryButtonState();
 
     try {
-        const data = await makeApiRequest(`/api/chats?backend=${backend}&user_id=${encodeURIComponent(userId)}`, { method: 'GET' }, config.timeouts.loadChats, refreshChatsLink, 'Refreshing...');
+        // The user_id is no longer needed for Telegram, it's derived from the token on the backend
+        const url = backend === 'webex' 
+            ? `/api/chats?backend=webex&user_id=${encodeURIComponent(appState.userIdentifiers.webex)}`
+            : `/api/chats?backend=telegram`;
+
+        const data = await makeApiRequest(url, { method: 'GET' }, config.timeouts.loadChats, refreshChatsLink, 'Refreshing...');
         
         if (data && data.length > 0) {
             data.forEach(chat => {
@@ -428,9 +466,8 @@ async function handleGetSummary() {
     clearErrors();
 
     // --- Step 1: Prepare the analysis (fetch messages) ---
+    // The backend is now a query parameter, not part of the body
     const prepareRequestBody = {
-        backend: appState.activeBackend,
-        userId: appState.userIdentifiers[appState.activeBackend],
         chatId: tomSelectInstance.getValue(),
         startDate: litepickerInstance.getStartDate().toJSDate().toISOString().slice(0, 10),
         endDate: litepickerInstance.getEndDate().toJSDate().toISOString().slice(0, 10),
@@ -439,7 +476,11 @@ async function handleGetSummary() {
 
     let prepareData;
     try {
-        prepareData = await makeApiRequest('/api/prepare-analysis', {
+        let url = `/api/prepare-analysis?backend=${appState.activeBackend}`;
+        if (appState.activeBackend === 'webex') {
+            url += `&user_id=${encodeURIComponent(appState.userIdentifiers.webex)}`;
+        }
+        prepareData = await makeApiRequest(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(prepareRequestBody)
@@ -515,6 +556,7 @@ async function handleGetSummary() {
 
 async function checkSessionOnLoad() {
     const params = new URLSearchParams(window.location.search);
+    // Handle Webex OAuth callback
     if (params.get('backend') === 'webex' && params.get('status') === 'success') {
         const webexUserId = params.get('user_id'); 
         if(webexUserId) {
@@ -522,29 +564,50 @@ async function checkSessionOnLoad() {
             appState.userIdentifiers.webex = webexUserId;
             localStorage.setItem(getUserIdKey('webex'), webexUserId);
             localStorage.setItem(ACTIVE_BACKEND_KEY, 'webex');
+            // Clear any old Telegram token
+            localStorage.removeItem(SESSION_TOKEN_KEY);
+            appState.sessionToken = null;
             window.history.replaceState({}, document.title, "/");
             showSection('chat');
             return;
         }
     }
+
     const lastActiveBackend = localStorage.getItem(ACTIVE_BACKEND_KEY);
-    if (lastActiveBackend) {
-        const lastActiveUserId = localStorage.getItem(getUserIdKey(lastActiveBackend));
-        if (lastActiveUserId) {
-            try {
-                await makeApiRequest(`/api/session-status?backend=${lastActiveBackend}&user_id=${encodeURIComponent(lastActiveUserId)}`, {method: 'GET'}, 10000);
-                appState.activeBackend = lastActiveBackend;
-                appState.userIdentifiers.telegram = localStorage.getItem(getUserIdKey('telegram'));
-                appState.userIdentifiers.webex = localStorage.getItem(getUserIdKey('webex'));
-                showSection('chat');
-                return;
-            } catch (error) {
-                localStorage.removeItem(getUserIdKey(lastActiveBackend));
-                localStorage.removeItem(ACTIVE_BACKEND_KEY);
-            }
+    const sessionToken = localStorage.getItem(SESSION_TOKEN_KEY);
+    const webexUserId = localStorage.getItem(getUserIdKey('webex'));
+
+    if (lastActiveBackend === 'telegram' && sessionToken) {
+        appState.sessionToken = sessionToken;
+        try {
+            // The token is automatically sent in the header by makeApiRequest
+            await makeApiRequest(`/api/session-status?backend=telegram`, { method: 'GET' }, 10000);
+            appState.activeBackend = 'telegram';
+            showSection('chat');
+            return;
+        } catch (error) {
+            // Token is invalid
+            localStorage.removeItem(SESSION_TOKEN_KEY);
+            appState.sessionToken = null;
+        }
+    } else if (lastActiveBackend === 'webex' && webexUserId) {
+         try {
+            // Webex doesn't use the token auth
+            await fetch(`/api/session-status?backend=webex&user_id=${encodeURIComponent(webexUserId)}`, { method: 'GET' });
+            appState.activeBackend = 'webex';
+            appState.userIdentifiers.webex = webexUserId;
+            showSection('chat');
+            return;
+        } catch (error) {
+            localStorage.removeItem(getUserIdKey('webex'));
         }
     }
+
+    // If no valid session is found, default to the login screen
     appState.activeBackend = 'telegram';
+    localStorage.removeItem(ACTIVE_BACKEND_KEY);
+    localStorage.removeItem(SESSION_TOKEN_KEY);
+    localStorage.removeItem(getUserIdKey('webex'));
     showSection('login');
 }
 

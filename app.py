@@ -1,7 +1,7 @@
-
 import json
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 import asyncio
@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, Request, APIRouter
+from fastapi import FastAPI, HTTPException, Query, Request, APIRouter, Depends, Header
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -34,6 +34,9 @@ logger = logging.getLogger(__name__)
 
 # --- Global Configuration & State ---
 llm_clients = {}
+# This will store our secure session tokens: { "token": "user_id" }
+# In a real production app, this should be a persistent store like Redis.
+session_tokens: Dict[str, str] = {}
 
 
 @asynccontextmanager
@@ -94,7 +97,18 @@ async def telegram_login(req: TelegramLoginRequest):
 async def telegram_verify(req: TelegramVerifyRequest):
     try:
         client = get_client("telegram")
-        return await client.verify(req.dict())
+        verification_result = await client.verify(req.dict())
+        
+        if verification_result.get("status") == "success":
+            user_id = verification_result["user_identifier"]
+            # Generate a secure, URL-safe token
+            token = secrets.token_urlsafe(32)
+            # Store the mapping from token to the actual user_id (phone number)
+            session_tokens[token] = user_id
+            # Return the token to the client instead of the raw user_id
+            return {"status": "success", "token": token}
+            
+        return verification_result
     except Exception as e:
         logger.error(f"Telegram verification failed: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
@@ -129,6 +143,35 @@ async def webex_callback(code: str, request: Request):
 # ===================================================================
 # Generic Endpoints (Post-Authentication)
 # ===================================================================
+async def get_current_user_id(
+    backend: str = Query(...),
+    user_id: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None)
+) -> str:
+    """
+    Dependency that handles both token (Telegram) and direct user_id (Webex) auth.
+    """
+    if backend == "telegram":
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authorization header required for Telegram.")
+        
+        scheme, _, token = authorization.partition(' ')
+        if scheme.lower() != 'bearer' or not token:
+            raise HTTPException(status_code=401, detail="Invalid authorization scheme for Telegram.")
+        
+        telegram_user_id = session_tokens.get(token)
+        if not telegram_user_id:
+            raise HTTPException(status_code=401, detail="Invalid or expired Telegram token.")
+        return telegram_user_id
+        
+    elif backend == "webex":
+        if not user_id:
+            raise HTTPException(status_code=400, detail="user_id query parameter is required for Webex.")
+        return user_id
+        
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid backend specified: {backend}")
+
 @router_api.get("/models")
 async def get_models():
     all_models = {}
@@ -150,16 +193,21 @@ async def get_models():
     return {**all_models, "default_models": default_models}
 
 @router_api.get("/session-status")
-async def get_session_status(backend: str, user_id: str):
+async def get_session_status(user_id: str = Depends(get_current_user_id), backend: str = Query(...)):
     client = get_client(backend)
     is_valid = await client.is_session_valid(user_id)
     if is_valid:
         return {"status": "authorized"}
     else:
+        # If the server-side session is invalid, also remove the token if it's a telegram session
+        if backend == "telegram":
+            token_to_remove = next((token for token, uid in session_tokens.items() if uid == user_id), None)
+            if token_to_remove:
+                del session_tokens[token_to_remove]
         raise HTTPException(status_code=401, detail="Session not valid or expired.")
 
 @router_api.get("/chats")
-async def get_all_chats(backend: str, user_id: str):
+async def get_all_chats(user_id: str = Depends(get_current_user_id), backend: str = Query(...)):
     try:
         client = get_client(backend)
         return await client.get_chats(user_id)
@@ -170,8 +218,6 @@ async def get_all_chats(backend: str, user_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 class PrepareAnalysisRequest(BaseModel):
-    backend: str
-    userId: str
     chatId: str
     startDate: str
     endDate: str
@@ -184,11 +230,14 @@ class AnalyzeRequest(BaseModel):
     endDate: str
     question: Optional[str] = None
 
+class LogoutRequest(BaseModel):
+    pass # No body needed now, backend comes from query param
+
 @router_api.post("/prepare-analysis")
-async def prepare_analysis(req: PrepareAnalysisRequest):
-    client = get_client(req.backend)
+async def prepare_analysis(req: PrepareAnalysisRequest, user_id: str = Depends(get_current_user_id), backend: str = Query(...)):
+    client = get_client(backend)
     messages: List[StandardMessage] = await client.get_messages(
-        req.userId, req.chatId, req.startDate, req.endDate, enable_caching=req.enableCaching if req.enableCaching is not None else True
+        user_id, req.chatId, req.startDate, req.endDate, enable_caching=req.enableCaching if req.enableCaching is not None else True
     )
     
     if not messages:
@@ -231,14 +280,17 @@ async def analyze_text_stream(req: AnalyzeRequest):
     return StreamingResponse(stream_generator(), media_type="text/event-stream")
     
 @router_api.post("/logout")
-async def logout(req: dict):
-    backend = req.get("backend")
-    user_id = req.get("userId")
-    if not backend or not isinstance(backend, str) or not user_id or not isinstance(user_id, str):
-        raise HTTPException(status_code=400, detail="Backend and userId are required and must be strings.")
-    
+async def logout(user_id: str = Depends(get_current_user_id), backend: str = Query(...)):
+    # Invalidate the token if it's a telegram logout
+    if backend == "telegram":
+        token_to_remove = next((token for token, uid in session_tokens.items() if uid == user_id), None)
+        if token_to_remove in session_tokens:
+            del session_tokens[token_to_remove]
+
+    # Log out from the client service
     client = get_client(backend)
     await client.logout(user_id)
+    
     return {"status": "success", "message": "Logout successful."}
 
 # ===================================================================
