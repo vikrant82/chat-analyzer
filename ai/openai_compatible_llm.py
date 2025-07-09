@@ -5,12 +5,7 @@ from typing import List, Dict, Any, AsyncGenerator, Optional
 import httpx
 
 from .base_llm import LLMClient
-from .prompts import (
-    QUESTION_SYSTEM_PROMPT,
-    QUESTION_USER_PROMPT,
-    SUMMARY_SYSTEM_PROMPT,
-    SUMMARY_USER_PROMPT,
-)
+from .prompts import UNIFIED_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -64,13 +59,11 @@ class OpenAICompatibleLLM(LLMClient):
     def get_default_model(self) -> Optional[str]:
         return self.config.get("default_model")
 
-    async def call_streaming(
+    async def call_conversational(
         self,
         model_name: str,
-        text_to_summarize: str,
-        start_date_str: str,
-        end_date_str: str,
-        question: Optional[str] = None
+        conversation: List[Dict[str, str]],
+        original_messages: Optional[str] = None
     ) -> AsyncGenerator[str, None]:
         if model_name not in self.available_models:
             logger.error(f"Attempted to use unconfigured OpenAI-compatible model: {model_name}")
@@ -83,23 +76,15 @@ class OpenAICompatibleLLM(LLMClient):
             return
 
         chat_completions_url = self.url
-        logger.info(f"Streaming from OpenAI-compatible endpoint ({model_name}) for {'question answering' if question else 'summarization'}...")
+        logger.info(f"Streaming conversational response from OpenAI-compatible endpoint ({model_name})...")
 
-        if question:
-            system_content = QUESTION_SYSTEM_PROMPT
-            user_content = QUESTION_USER_PROMPT.format(
-                start_date_str=start_date_str,
-                end_date_str=end_date_str,
-                text_to_summarize=text_to_summarize,
-                question=question
-            )
+        system_prompt = UNIFIED_SYSTEM_PROMPT.format(text_to_summarize=original_messages)
+        
+        # If the conversation is empty, it's the first turn (the summary)
+        if not conversation:
+             messages = [{"role": "system", "content": system_prompt}]
         else:
-            system_content = SUMMARY_SYSTEM_PROMPT
-            user_content = SUMMARY_USER_PROMPT.format(
-                start_date_str=start_date_str,
-                end_date_str=end_date_str,
-                text_to_summarize=text_to_summarize
-            )
+             messages = [{"role": "system", "content": system_prompt}] + conversation
 
         headers = {"Content-Type": "application/json"}
         if self.api_key:
@@ -107,10 +92,7 @@ class OpenAICompatibleLLM(LLMClient):
 
         payload = {
             "model": model_name,
-            "messages": [
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": user_content}
-            ],
+            "messages": messages,
             "temperature": 0.7,
             "stream": True
         }
@@ -134,7 +116,7 @@ class OpenAICompatibleLLM(LLMClient):
                                 if chunk_data['choices'][0]['delta'].get('content'):
                                     yield chunk_data['choices'][0]['delta']['content']
                             except json.JSONDecodeError:
-                                logger.warning(f"Could not decode JSON from LM Studio stream: {line_content}")
+                                logger.warning(f"Could not decode JSON from OpenAI-compatible stream: {line_content}")
                             except (KeyError, IndexError):
                                 logger.warning(f"Unexpected structure in OpenAI-compatible stream chunk: {line_content}")
         except httpx.TimeoutException:

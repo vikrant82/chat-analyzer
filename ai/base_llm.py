@@ -28,15 +28,13 @@ class LLMClient(ABC):
         pass
 
     @abstractmethod
-    async def call_streaming(
+    async def call_conversational(
         self,
         model_name: str,
-        text_to_summarize: str,
-        start_date_str: str,
-        end_date_str: str,
-        question: Optional[str] = None
+        conversation: List[Dict[str, str]],
+        original_messages: Optional[str] = None
     ) -> AsyncGenerator[str, None]:
         """
-        Calls the LLM with a streaming response.
+        Calls the LLM with a streaming response for a conversational query.
         """
         pass

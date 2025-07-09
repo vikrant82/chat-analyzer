@@ -48,6 +48,8 @@ class WebexClient:
         return {}
 
     def _save_token_data(self):
+        # Ensure the directory exists before writing the file
+        os.makedirs(os.path.dirname(self.token_storage_path), exist_ok=True)
         with open(self.token_storage_path, "w") as f:
             json.dump(self.token_data, f)
 
