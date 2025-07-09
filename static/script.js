@@ -1,6 +1,11 @@
 // --- Global State & Configuration ---
 const appState = {
-    isProcessing: false,
+    isProcessing: {
+        login: false,
+        chats: false,
+        analysis: false,
+        session: false,
+    },
     activeBackend: null, // 'telegram' or 'webex'
     sessionTokens: { telegram: null, webex: null }, // The single source of truth for auth
     activeSection: 'login',
@@ -93,11 +98,67 @@ function updateStartChatButtonState() {
     startChatButton.disabled = !baseRequirementsMet;
 }
 
-async function makeApiRequest(url, options, timeoutDuration, elementToLoad = null, loadingText = 'Processing...') {
-    if (appState.isProcessing && elementToLoad && elementToLoad.disabled) {
+function initializeLitepicker() {
+    if (litepickerInstance) {
+        litepickerInstance.destroy();
+    }
+    litepickerInstance = new Litepicker({
+        element: document.getElementById('dateRangePicker'),
+        singleMode: false,
+        format: 'YYYY-MM-DD',
+        plugins: ['ranges'],
+        ranges: {
+            'Last 2 Days': (() => {
+                const end = new Date();
+                const start = new Date();
+                start.setDate(end.getDate() - 1);
+                return [start, end];
+            })(),
+            'Last 3 Days': (() => {
+                const end = new Date();
+                const start = new Date();
+                start.setDate(end.getDate() - 2);
+                return [start, end];
+            })(),
+            'Last 4 Days': (() => {
+                const end = new Date();
+                const start = new Date();
+                start.setDate(end.getDate() - 3);
+                return [start, end];
+            })(),
+            'Last Week': (() => {
+                const end = new Date();
+                const start = new Date();
+                start.setDate(end.getDate() - 6);
+                return [start, end];
+            })(),
+            'This Month': (() => {
+                const start = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+                const end = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
+                return [start, end];
+            })(),
+            'Last Month': (() => {
+                const start = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
+                const end = new Date(new Date().getFullYear(), new Date().getMonth(), 0);
+                return [start, end];
+            })(),
+            'Last 2 Months': (() => {
+                const end = new Date(new Date().getFullYear(), new Date().getMonth(), 0);
+                const start = new Date(new Date().getFullYear(), new Date().getMonth() - 2, 1);
+                return [start, end];
+            })(),
+        },
+        setup: (picker) => {
+            picker.setDateRange(new Date(), new Date());
+        },
+    });
+}
+
+async function makeApiRequest(url, options, timeoutDuration, elementToLoad = null, loadingText = 'Processing...', operationType = 'login') {
+    if (appState.isProcessing[operationType]) {
         throw new Error('Operation already in progress.');
     }
-    appState.isProcessing = true;
+    appState.isProcessing[operationType] = true;
     if (elementToLoad) setLoadingState(elementToLoad, true, loadingText);
 
     const token = appState.sessionTokens[appState.activeBackend];
@@ -137,7 +198,7 @@ async function makeApiRequest(url, options, timeoutDuration, elementToLoad = nul
         }
         throw error;
     } finally {
-        appState.isProcessing = false;
+        appState.isProcessing[operationType] = false;
         if (elementToLoad) setLoadingState(elementToLoad, false);
     }
 }
@@ -204,12 +265,11 @@ function openSwitchServiceModal() {
 }
 
 async function switchService(newBackend) {
-    if (appState.activeBackend === newBackend) return; // Do nothing if already active
+    if (appState.activeBackend === newBackend) return;
 
     appState.activeBackend = newBackend;
     localStorage.setItem(ACTIVE_BACKEND_KEY, newBackend);
     
-    // Clear the chat window and conversation history from the previous service
     appState.conversation = [];
     if (chatWindow) chatWindow.innerHTML = '';
     if (conversationalChatSection) conversationalChatSection.style.display = 'none';
@@ -218,7 +278,6 @@ async function switchService(newBackend) {
     if (token) {
         appState.sessionTokens[newBackend] = token;
         showSection('chatSection');
-        // Force a refresh of the chats for the new backend
         handleLoadChats(); 
     } else {
         showSection('loginSection');
@@ -240,15 +299,15 @@ async function handleLogin() {
             return; 
         }
         try {
-            await makeApiRequest(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phoneVal }) }, config.timeouts.login, loginSubmitButton);
+            await makeApiRequest(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: phoneVal }) }, config.timeouts.login, loginSubmitButton, 'login');
             showSection('verificationSection');
         } catch (error) { 
             loginError.textContent = error.message || 'Login failed.';
         }
-    } else { // Webex and future OAuth-based flows
+    } else {
         setLoadingState(webexLoginButton, true, 'Redirecting...');
         try {
-            const data = await makeApiRequest(url, { method: 'POST' }, config.timeouts.login);
+            const data = await makeApiRequest(url, { method: 'POST' }, config.timeouts.login, webexLoginButton, 'login');
             if (data.url) {
                 window.location.href = data.url;
             } else {
@@ -268,7 +327,7 @@ async function handleVerify() {
     const phone = phoneInput.value.trim();
     
     try {
-        const data = await makeApiRequest(`/api/telegram/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, code, password }) }, config.timeouts.verify, verifyButton);
+        const data = await makeApiRequest(`/api/telegram/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, code, password }) }, config.timeouts.verify, verifyButton, 'login');
         if (data.status === 'success' && data.token) {
             appState.sessionTokens.telegram = data.token;
             appState.activeBackend = 'telegram';
@@ -290,13 +349,12 @@ async function handleFullLogout() {
     if (backend && appState.sessionTokens[backend]) {
         try {
             const url = `/api/logout?backend=${backend}`;
-            await makeApiRequest(url, { method: 'POST' }, config.timeouts.logout, logoutButton);
+            await makeApiRequest(url, { method: 'POST' }, config.timeouts.logout, logoutButton, 'login');
         } catch (error) {
             console.error("Logout failed, proceeding with client-side cleanup:", error);
         }
     }
     
-    // Clear only the active backend's data
     if (backend) {
         localStorage.removeItem(getSessionTokenKey(backend));
         appState.sessionTokens[backend] = null;
@@ -306,10 +364,8 @@ async function handleFullLogout() {
 
     const otherBackend = backend === 'telegram' ? 'webex' : 'telegram';
     if (localStorage.getItem(getSessionTokenKey(otherBackend))) {
-        // If the other session exists, switch to it
         switchService(otherBackend);
     } else {
-        // Otherwise, go to login
         localStorage.removeItem(ACTIVE_BACKEND_KEY);
         appState.activeBackend = null;
         showSection('loginSection');
@@ -341,7 +397,7 @@ async function handleLoadChats() {
 
     try {
         const url = `/api/chats?backend=${backend}`;
-        const data = await makeApiRequest(url, { method: 'GET' }, config.timeouts.loadChats, refreshChatsLink, 'Refreshing...');
+        const data = await makeApiRequest(url, { method: 'GET' }, config.timeouts.loadChats, refreshChatsLink, 'Refreshing...', 'chats');
         
         if (data && data.length > 0) {
             data.forEach(chat => {
@@ -378,7 +434,7 @@ async function loadModels() {
         modelSelect.disabled = true;
     }
     try {
-        const data = await makeApiRequest('/api/models', { method: 'GET' }, config.timeouts.loadModels);
+        const data = await makeApiRequest('/api/models', { method: 'GET' }, config.timeouts.loadModels, null, 'login');
         if (modelSelect) modelSelect.innerHTML = '';
         Object.keys(data).forEach(key => {
             if (key.endsWith('_models')) {
@@ -441,7 +497,6 @@ async function callChatApi(message = null) {
             endDate: litepickerInstance.getEndDate().toJSDate().toISOString().slice(0, 10),
             enableCaching: cacheChatsToggle.checked,
             conversation: appState.conversation,
-            message: message,
         };
         
         if (message) {
@@ -524,7 +579,7 @@ async function checkSessionOnLoad() {
     if (lastBackend && appState.sessionTokens[lastBackend]) {
         appState.activeBackend = lastBackend;
         try {
-            await makeApiRequest(`/api/session-status?backend=${lastBackend}`, { method: 'GET' }, 10000);
+            await makeApiRequest(`/api/session-status?backend=${lastBackend}`, { method: 'GET' }, 10000, null, 'session');
             showSection('chatSection');
             return;
         } catch (error) {
@@ -580,7 +635,7 @@ document.addEventListener('DOMContentLoaded', () => {
         clearChatButton.addEventListener('click', async () => {
             if (appState.sessionTokens[appState.activeBackend]) {
                 try {
-                    await makeApiRequest('/api/clear-session', { method: 'POST' }, config.timeouts.logout, clearChatButton);
+                    await makeApiRequest('/api/clear-session', { method: 'POST' }, config.timeouts.logout, clearChatButton, 'session');
                 } catch (error) {
                     console.error("Failed to clear session on server:", error);
                 }
@@ -606,59 +661,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tomSelectInstance.on('change', updateStartChatButtonState);
     }
     
-    if (litepickerInstance) {
-        litepickerInstance.destroy();
-    }
-    litepickerInstance = new Litepicker({
-        element: document.getElementById('dateRangePicker'),
-        singleMode: false,
-        format: 'YYYY-MM-DD',
-        plugins: ['ranges'],
-        ranges: {
-            'Last 2 Days': (() => {
-                const end = new Date();
-                const start = new Date();
-                start.setDate(end.getDate() - 1);
-                return [start, end];
-            })(),
-            'Last 3 Days': (() => {
-                const end = new Date();
-                const start = new Date();
-                start.setDate(end.getDate() - 2);
-                return [start, end];
-            })(),
-            'Last 4 Days': (() => {
-                const end = new Date();
-                const start = new Date();
-                start.setDate(end.getDate() - 3);
-                return [start, end];
-            })(),
-            'Last Week': (() => {
-                const end = new Date();
-                const start = new Date();
-                start.setDate(end.getDate() - 6);
-                return [start, end];
-            })(),
-            'This Month': (() => {
-                const start = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-                const end = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
-                return [start, end];
-            })(),
-            'Last Month': (() => {
-                const start = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
-                const end = new Date(new Date().getFullYear(), new Date().getMonth(), 0);
-                return [start, end];
-            })(),
-            'Last 2 Months': (() => {
-                const end = new Date(new Date().getFullYear(), new Date().getMonth(), 0);
-                const start = new Date(new Date().getFullYear(), new Date().getMonth() - 2, 1);
-                return [start, end];
-            })(),
-        },
-        setup: (picker) => {
-            picker.setDateRange(new Date(), new Date());
-        },
-    });
+    initializeLitepicker();
 
     if (cacheChatsToggle) {
         const saved = localStorage.getItem(CACHE_CHATS_KEY);
