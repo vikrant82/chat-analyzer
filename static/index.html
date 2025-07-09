@@ -56,49 +56,49 @@
 
         <!-- Chat Selection & Analysis Section -->
         <div id="chatSection" class="section">
-            <h2 id="chatSectionTitle">Analyze Chats</h2>
-            <div class="form-group">
-                <div class="chat-label-group">
-                    <label for="chatSelect">Chat:</label>
-                    <a id="refreshChatsLink">Refresh List</a>
+            <div class="main-content-wrapper">
+                <div class="analysis-column">
+                    <h2 id="chatSectionTitle">Analyze Chats</h2>
+                    <div class="form-group">
+                        <div class="chat-label-group">
+                            <label for="chatSelect">1. Select a Chat:</label>
+                            <a id="refreshChatsLink">Refresh List</a>
+                        </div>
+                        <select id="chatSelect" required></select>
+                        <div id="chatLoadingError" class="error-message"></div>
+                        <span id="lastUpdatedTime"></span>
+                    </div>
+                    <div class="form-group">
+                        <label for="modelSelect">2. Select an AI Model:</label>
+                        <select id="modelSelect" required disabled></select>
+                        <div id="modelError" class="error-message"></div>
+                    </div>
+                    <div class="form-group">
+                        <label for="dateRangePicker">3. Select a Date Range:</label>
+                        <input type="text" id="dateRangePicker" readonly>
+                    </div>
+                    <div id="dateError" class="error-message"></div>
+                     <div class="form-group checkbox-group">
+                        <input type="checkbox" id="cacheChatsToggle" checked>
+                        <label for="cacheChatsToggle">Enable caching for faster analysis</label>
+                    </div>
+                    <div class="button-group">
+                        <button id="startChatButton" type="button" disabled>Start Chat</button>
+                    </div>
                 </div>
-                <select id="chatSelect" required></select>
-                <div id="chatLoadingError" class="error-message"></div>
-                <span id="lastUpdatedTime"></span>
-            </div>
-            <div class="form-group">
-                <label for="modelSelect">AI Model:</label>
-                <select id="modelSelect" required disabled></select>
-                <div id="modelError" class="error-message"></div>
-            </div>
-            <div class="form-group">
-                <label for="dateRangePicker">Date Range:</label>
-                <input type="text" id="dateRangePicker" readonly>
-            </div>
-            <div id="dateError" class="error-message"></div>
-            <div class="form-group checkbox-group">
-                <input type="checkbox" id="askQuestionToggle">
-                <label for="askQuestionToggle">Ask a specific question instead of summarizing?</label>
-            </div>
-            <div class="form-group checkbox-group">
-                <input type="checkbox" id="cacheChatsToggle" checked>
-                <label for="cacheChatsToggle">Enable caching for faster analysis</label>
-            </div>
-            <div id="questionInputContainer" class="form-group" style="display: none;">
-                <label for="questionInput">Your Question:</label>
-                <textarea id="questionInput" placeholder="Enter the question you want to ask..." required></textarea>
-                <div id="questionError" class="error-message"></div>
-            </div>
-            <div class="button-group">
-                <button id="getSummaryButton" type="button" disabled>Get Summary</button>
-            </div>
-
-            <!-- In-page results container -->
-            <div id="resultsContainer" style="display: none;">
-                <h2 id="resultsTitle">Summary</h2>
-                <div id="summaryMeta"></div>
-                <div id="summaryContent">
-                    <!-- Streaming results will appear here -->
+                <!-- Unified Chat Section -->
+                <div id="conversationalChatSection" class="chat-column" style="display: none;">
+                    <h2 id="conversationalChatTitle">Conversation</h2>
+                    <div id="chatWindow">
+                        <!-- Chat messages will be appended here -->
+                    </div>
+                    <div class="chat-input-area">
+                        <textarea id="chatInput" placeholder="Ask a follow-up question..."></textarea>
+                        <button id="sendChatButton">Send</button>
+                    </div>
+                     <div class="footer-actions">
+                        <button id="clearChatButton" type="button">Clear & Start New</button>
+                    </div>
                 </div>
             </div>
 
@@ -107,6 +107,7 @@
                 <button id="logoutButton" type="button">Logout</button>
             </div>
         </div>
+
     </div>
 
     <!-- Switch Service Modal -->
@@ -121,6 +122,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/litepicker/dist/plugins/ranges.js"></script>
     <script src="/static/script.js" defer></script>
 </body>
 </html>
