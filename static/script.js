@@ -6,6 +6,7 @@ const appState = {
         analysis: false,
         session: false,
     },
+    chatLoadController: null,
     activeBackend: null, // 'telegram' or 'webex'
     sessionTokens: { telegram: null, webex: null }, // The single source of truth for auth
     activeSection: 'login',
@@ -27,7 +28,6 @@ const config = {
 };
 
 let tomSelectInstance = null;
-let litepickerInstance = null;
 
 // --- DOM Elements ---
 const loginSection = document.getElementById('loginSection');
@@ -98,59 +98,23 @@ function updateStartChatButtonState() {
     startChatButton.disabled = !baseRequirementsMet;
 }
 
-function initializeLitepicker() {
-    if (litepickerInstance) {
-        litepickerInstance.destroy();
-    }
-    litepickerInstance = new Litepicker({
-        element: document.getElementById('dateRangePicker'),
-        singleMode: false,
-        format: 'YYYY-MM-DD',
-        plugins: ['ranges'],
+function initializeDateRangePicker() {
+    const dateRangePicker = $('#dateRangePicker');
+    dateRangePicker.daterangepicker({
+        startDate: moment(),
+        endDate: moment(),
         ranges: {
-            'Last 2 Days': (() => {
-                const end = new Date();
-                const start = new Date();
-                start.setDate(end.getDate() - 1);
-                return [start, end];
-            })(),
-            'Last 3 Days': (() => {
-                const end = new Date();
-                const start = new Date();
-                start.setDate(end.getDate() - 2);
-                return [start, end];
-            })(),
-            'Last 4 Days': (() => {
-                const end = new Date();
-                const start = new Date();
-                start.setDate(end.getDate() - 3);
-                return [start, end];
-            })(),
-            'Last Week': (() => {
-                const end = new Date();
-                const start = new Date();
-                start.setDate(end.getDate() - 6);
-                return [start, end];
-            })(),
-            'This Month': (() => {
-                const start = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-                const end = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
-                return [start, end];
-            })(),
-            'Last Month': (() => {
-                const start = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
-                const end = new Date(new Date().getFullYear(), new Date().getMonth(), 0);
-                return [start, end];
-            })(),
-            'Last 2 Months': (() => {
-                const end = new Date(new Date().getFullYear(), new Date().getMonth(), 0);
-                const start = new Date(new Date().getFullYear(), new Date().getMonth() - 2, 1);
-                return [start, end];
-            })(),
-        },
-        setup: (picker) => {
-            picker.setDateRange(new Date(), new Date());
-        },
+            'Last 2 Days': [moment().subtract(1, 'days'), moment()],
+            'Last 3 Days': [moment().subtract(2, 'days'), moment()],
+            'Last 4 Days': [moment().subtract(3, 'days'), moment()],
+            'Last Week': [moment().subtract(6, 'days'), moment()],
+            'This Month': [moment().startOf('month'), moment().endOf('month')],
+            'Last 2 Months': [moment().subtract(2, 'month').startOf('month'), moment()]
+        }
+    });
+
+    dateRangePicker.on('apply.daterangepicker', function(ev, picker) {
+        updateStartChatButtonState();
     });
 }
 
@@ -170,6 +134,9 @@ async function makeApiRequest(url, options, timeoutDuration, elementToLoad = nul
     }
 
     const controller = new AbortController();
+    if (operationType === 'chats') {
+        appState.chatLoadController = controller;
+    }
     const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
     options.signal = controller.signal;
 
@@ -266,6 +233,10 @@ function openSwitchServiceModal() {
 
 async function switchService(newBackend) {
     if (appState.activeBackend === newBackend) return;
+
+    if (appState.chatLoadController) {
+        appState.chatLoadController.abort();
+    }
 
     appState.activeBackend = newBackend;
     localStorage.setItem(ACTIVE_BACKEND_KEY, newBackend);
@@ -493,8 +464,8 @@ async function callChatApi(message = null) {
         const requestBody = {
             chatId: tomSelectInstance.getValue(),
             modelName: modelSelect.value,
-            startDate: litepickerInstance.getStartDate().toJSDate().toISOString().slice(0, 10),
-            endDate: litepickerInstance.getEndDate().toJSDate().toISOString().slice(0, 10),
+            startDate: $('#dateRangePicker').data('daterangepicker').startDate.format('YYYY-MM-DD'),
+            endDate: $('#dateRangePicker').data('daterangepicker').endDate.format('YYYY-MM-DD'),
             enableCaching: cacheChatsToggle.checked,
             conversation: appState.conversation,
         };
@@ -600,6 +571,14 @@ async function checkSessionOnLoad() {
 document.addEventListener('DOMContentLoaded', () => {
     if (startChatButton) {
         startChatButton.addEventListener('click', () => {
+            if (appState.conversation.length > 0) {
+                if (!confirm("You have an ongoing conversation. Starting a new chat will clear the current conversation. Continue?")) {
+                    return;
+                }
+                appState.conversation = [];
+                chatWindow.innerHTML = '';
+            }
+
             const chatColumn = document.getElementById('conversationalChatSection');
             if (chatColumn) {
                 chatColumn.style.display = 'block';
@@ -661,7 +640,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tomSelectInstance.on('change', updateStartChatButtonState);
     }
     
-    initializeLitepicker();
+    initializeDateRangePicker();
 
     if (cacheChatsToggle) {
         const saved = localStorage.getItem(CACHE_CHATS_KEY);

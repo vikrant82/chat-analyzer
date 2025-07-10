@@ -14,7 +14,7 @@ body {
 /* --- Main Container --- */
 .container {
     width: 100%;
-    max-width: 800px;
+    max-width: 1200px;
     margin: 0 auto;
     background: rgba(255, 255, 255, 0.85);
     backdrop-filter: blur(10px);
@@ -267,7 +267,7 @@ button:disabled {
     padding: 8px 12px;
     border-radius: 18px;
     margin-bottom: 8px;
-    max-width: 85%;
+    max-width: 95%;
     line-height: 1.4;
 }
 
@@ -300,6 +300,19 @@ button:disabled {
     width: auto;
 }
 
-.litepicker .container__main .container__ranges button {
-    color: #1877f2;
+
+@media (max-width: 600px) {
+    .container {
+        padding: 1rem;
+    }
+
+    .chat-message {
+        max-width: 95%;
+        padding: 6px 10px;
+        font-size: 0.95rem;
+    }
+
+    #chatWindow {
+        padding: 0.5rem;
+    }
 }
