@@ -8,6 +8,10 @@ The application features a robust caching system to ensure fast, repeated analys
 
 -   **Multi-Service Connectivity**: Securely log in to either Telegram or Webex accounts.
 -   **Multi-Session Support**: Stay logged into both Telegram and Webex simultaneously and seamlessly switch between them without needing to re-authenticate each time.
+-   **Unified Chat Experience**:
+    -   Engage in a continuous conversation with the AI about your chat data.
+    -   Ask follow-up questions without re-submitting the initial query.
+    -   The AI maintains context throughout the conversation.
 -   **AI-Powered Analysis**:
     -   **Real-time Streaming**: View AI responses as they are generated, word-by-word.
     -   **Summarization**: Generate concise summaries of chat conversations for a given period.
@@ -15,6 +19,7 @@ The application features a robust caching system to ensure fast, repeated analys
 -   **Flexible AI Model Support**:
     -   Connects to **Google AI** (e.g., Gemini family) via API key.
     -   Connects to any locally-hosted model served through **LM Studio**.
+    -   Support for any OpenAI compatible endpoint.
     -   Dynamically populates and allows selection from all available models.
 -   **Intelligent Caching System**:
     -   **Configurable**: Users can enable or disable caching.
@@ -233,12 +238,11 @@ Once logged in, you will be on the "Analyze Chats" screen.
 
 1.  **Select a Chat**: Your chats/rooms will be listed in the searchable dropdown. If the list is empty, click the **"Refresh List"** link to load them.
 2.  **Select an AI Model**: Choose your preferred AI model from the list. A sensible default will be pre-selected if configured.
-3.  **Select a Date Range**: Use the modern date picker to choose the start and end dates. You can also select from pre-defined ranges like "Today", "Last 7 Days", etc.
-4.  **Configure Caching**: Use the "Cache fetched chats" checkbox to enable or disable caching for the current analysis.
-5.  **Choose an Action**:
-    -   **For a Summary**: Leave the "Ask a specific question" box unchecked and click **"Get Summary"**.
-    -   **To Ask a Question**: Check the "Ask a specific question" box, type your question into the text area, and click **"Get Answer"**.
-6.  View the results as they stream in from the AI model.
+3.  **Select a Date Range**: Use the date picker to choose the start and end dates. You can also select from pre-defined ranges like "Last 2 Days", "Last Week", etc.
+4.  **Configure Caching**: Use the "Enable caching for faster analysis" checkbox to enable or disable caching for the current analysis.
+5.  **Start Chat**: Click the **"Start Chat"** button to begin the analysis and open the conversational chat window.
+6.  **Ask Follow-up Questions**: Use the chat input to ask follow-up questions about the analyzed data.
+7.  **Clear & Start New**: Click the **"Clear & Start New"** button to clear the conversation and start a new analysis.
 
 ### Switching Services
 
