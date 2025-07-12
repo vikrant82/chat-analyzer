@@ -240,8 +240,9 @@ Once logged in, you will be on the "Analyze Chats" screen.
 2.  **Select an AI Model**: Choose your preferred AI model from the list. A sensible default will be pre-selected if configured.
 3.  **Select a Date Range**: Use the date picker to choose the start and end dates. You can also select from pre-defined ranges like "Last 2 Days", "Last Week", etc.
 4.  **Configure Caching**: Use the "Enable caching for faster analysis" checkbox to enable or disable caching for the current analysis.
-5.  **Start Chat**: Click the **"Start Chat"** button to begin the analysis and open the conversational chat window.
-6.  **Ask Follow-up Questions**: Use the chat input to ask follow-up questions about the analyzed data.
+5.  **(Optional) Start with a Specific Question**: Before starting the chat, you can enter a specific question in the text box. If you do, the AI will answer that question directly instead of providing a general summary.
+6.  **Start Chat**: Click the **"Start Chat"** button to begin the analysis and open the conversational chat window.
+7.  **Ask Follow-up Questions**: Use the chat input to ask follow-up questions about the analyzed data.
 7.  **Clear & Start New**: Click the **"Clear & Start New"** button to clear the conversation and start a new analysis.
 
 ### Switching Services
