@@ -65,6 +65,7 @@ const chatInput = document.getElementById('chatInput');
 const sendChatButton = document.getElementById('sendChatButton');
 const clearChatButton = document.getElementById('clearChatButton');
 const startChatButton = document.getElementById('startChatButton');
+const initialQuestion = document.getElementById('initialQuestion');
 
 // --- Utility Functions ---
 function setLoadingState(buttonElement, isLoading, loadingText = 'Processing...') {
@@ -96,6 +97,9 @@ function updateStartChatButtonState() {
     const validModelSelected = modelSelect && modelSelect.value && !modelSelect.options[modelSelect.selectedIndex]?.disabled;
     const baseRequirementsMet = appState.chatListStatus[appState.activeBackend] === 'loaded' && appState.modelsLoaded && validChatSelected && validModelSelected;
     startChatButton.disabled = !baseRequirementsMet;
+    if (initialQuestion) {
+        initialQuestion.disabled = !baseRequirementsMet;
+    }
 }
 
 function initializeDateRangePicker() {
@@ -511,7 +515,7 @@ async function callChatApi(message = null) {
                         aiMessageElem.innerHTML = `<p><em>${data.message}</em></p>`;
                     } else if (data.type === 'content') {
                         fullResponseText += data.chunk;
-                        aiMessageElem.innerHTML = marked.parse(fullResponseText);
+                        aiMessageElem.innerHTML = marked.parse(fullResponseText, { breaks: true, gfm: true });
                     }
                     chatWindow.scrollTop = chatWindow.scrollHeight;
                 }
@@ -578,12 +582,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 appState.conversation = [];
                 chatWindow.innerHTML = '';
             }
+            const question = initialQuestion.value.trim();
+            if (question) {
+                appState.conversation.push({ role: 'user', content: question });
+                const userMessageElem = document.createElement('div');
+                userMessageElem.classList.add('chat-message', 'user-message');
+                userMessageElem.textContent = question;
+                chatWindow.appendChild(userMessageElem);
+                initialQuestion.value = '';
+            }
 
             const chatColumn = document.getElementById('conversationalChatSection');
             if (chatColumn) {
                 chatColumn.style.display = 'block';
                 startChatButton.disabled = true;
-                callChatApi();
+                if (initialQuestion) {
+                    initialQuestion.style.display = 'none';
+                }
+                callChatApi(question);
             }
         });
     }
@@ -626,6 +642,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (chatColumn) {
                 chatColumn.style.display = 'none';
             }
+            if (initialQuestion) {
+                initialQuestion.style.display = 'block';
+            }
             updateStartChatButtonState();
         });
     }
@@ -637,7 +656,16 @@ document.addEventListener('DOMContentLoaded', () => {
             theme: 'bootstrap5'
         });
         tomSelectInstance.disable();
-        tomSelectInstance.on('change', updateStartChatButtonState);
+        tomSelectInstance.on('change',() => {
+            appState.conversation = [];
+            if (chatWindow) chatWindow.innerHTML = '';
+            if (conversationalChatSection) conversationalChatSection.style.display = 'none';
+            if (initialQuestion) {
+                initialQuestion.style.display = 'block';
+                initialQuestion.value = '';
+            }
+            updateStartChatButtonState();
+        });
     }
     
     initializeDateRangePicker();

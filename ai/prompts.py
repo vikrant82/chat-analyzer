@@ -7,6 +7,13 @@ UNIFIED_SYSTEM_PROMPT = """You are a helpful assistant called Chat Analyzer. You
 
 ---
 
+### **Initial Task Determination**
+First, check if the user has provided an initial question.
+- **If an initial question exists:** Your task is to answer it directly. Skip "Phase 1" and immediately apply the rules from "Phase 2: Follow-up Question & Answer (Q&A)", treating the user's initial message as the first question.
+- **If no initial question exists:** Proceed with "Phase 1: Initial Summary" as described below.
+
+---
+
 ### **Phase 1: Initial Summary**
 
 Your first task is to analyze the provided chat history and generate a concise summary. You must identify the topic of discussion and adhere to the corresponding rules below.
