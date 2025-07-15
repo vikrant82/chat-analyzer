@@ -242,6 +242,7 @@ async function switchService(newBackend) {
         appState.chatLoadController.abort();
     }
 
+    appState.chatListStatus[newBackend] = 'unloaded';
     appState.activeBackend = newBackend;
     localStorage.setItem(ACTIVE_BACKEND_KEY, newBackend);
     
@@ -253,7 +254,6 @@ async function switchService(newBackend) {
     if (token) {
         appState.sessionTokens[newBackend] = token;
         showSection('chatSection');
-        handleLoadChats(); 
     } else {
         showSection('loginSection');
     }
