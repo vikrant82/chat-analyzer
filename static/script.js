@@ -66,6 +66,8 @@ const sendChatButton = document.getElementById('sendChatButton');
 const clearChatButton = document.getElementById('clearChatButton');
 const startChatButton = document.getElementById('startChatButton');
 const initialQuestion = document.getElementById('initialQuestion');
+const downloadChatButton = document.getElementById('downloadChatButton');
+const downloadFormat = document.getElementById('downloadFormat');
 
 // --- Utility Functions ---
 function setLoadingState(buttonElement, isLoading, loadingText = 'Processing...') {
@@ -97,6 +99,9 @@ function updateStartChatButtonState() {
     const validModelSelected = modelSelect && modelSelect.value && !modelSelect.options[modelSelect.selectedIndex]?.disabled;
     const baseRequirementsMet = appState.chatListStatus[appState.activeBackend] === 'loaded' && appState.modelsLoaded && validChatSelected && validModelSelected;
     startChatButton.disabled = !baseRequirementsMet;
+    if (downloadChatButton) {
+        downloadChatButton.disabled = !validChatSelected;
+    }
     if (initialQuestion) {
         initialQuestion.disabled = !baseRequirementsMet;
     }
@@ -572,6 +577,65 @@ async function checkSessionOnLoad() {
     showSection('loginSection');
 }
 
+async function handleDownloadChat() {
+    if (!appState.sessionTokens[appState.activeBackend]) {
+        alert("Session expired. Please log in again.");
+        handleFullLogout();
+        return;
+    }
+
+    setLoadingState(downloadChatButton, true, 'Downloading...');
+    try {
+        const requestBody = {
+            chatId: tomSelectInstance.getValue(),
+            startDate: $('#dateRangePicker').data('daterangepicker').startDate.format('YYYY-MM-DD'),
+            endDate: $('#dateRangePicker').data('daterangepicker').endDate.format('YYYY-MM-DD'),
+            enableCaching: cacheChatsToggle.checked,
+            format: downloadFormat.value
+        };
+
+        const response = await fetch(`/api/download?backend=${appState.activeBackend}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${appState.sessionTokens[appState.activeBackend]}`
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Download failed: ${errorText}`);
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        
+        const contentDisposition = response.headers.get('content-disposition');
+        let filename = 'chat.txt'; // default
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+            if (filenameMatch.length > 1) {
+                filename = filenameMatch[1];
+            }
+        }
+        
+        a.setAttribute('download', filename);
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+    } catch (error) {
+        alert(error.message);
+    } finally {
+        setLoadingState(downloadChatButton, false);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     if (startChatButton) {
         startChatButton.addEventListener('click', () => {
@@ -688,6 +752,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (refreshChatsLink) refreshChatsLink.addEventListener('click', handleLoadChats);
     
     if (modelSelect) modelSelect.addEventListener('change', updateStartChatButtonState);
+    if (downloadChatButton) downloadChatButton.addEventListener('click', handleDownloadChat);
     
     checkSessionOnLoad();
 });

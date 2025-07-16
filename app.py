@@ -15,6 +15,8 @@ from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import AsyncGenerator
+from fpdf import FPDF
+from io import BytesIO
 
 # Local imports from our new structure
 from clients.factory import get_client
@@ -70,6 +72,13 @@ class ChatMessage(BaseModel):
     enableCaching: bool
     conversation: List[Dict[str, str]]
     originalMessages: Optional[str] = None # This is no longer sent from the client, but kept for compatibility
+
+class DownloadRequest(BaseModel):
+    chatId: str
+    startDate: str
+    endDate: str
+    enableCaching: bool
+    format: str  # 'pdf' or 'txt'
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -303,6 +312,48 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
             yield f"\n\n**Fatal Error:** An unexpected error occurred during the analysis stream. Please check the server logs."
 
     return StreamingResponse(stream_generator(), media_type="text/event-stream")
+
+def _create_pdf(text: str, chat_id: str) -> BytesIO:
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=10)
+    
+    # Add chat ID as title
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(0, 10, f"Chat History: {chat_id}", 0, 1, 'C')
+    pdf.ln(10)
+    
+    # Add content
+    pdf.set_font("Arial", size=10)
+    # Use multi_cell for better handling of long text and newlines
+    pdf.multi_cell(0, 5, text.encode('latin-1', 'replace').decode('latin-1'))
+    
+    pdf_bytes = pdf.output(dest='S')
+    output = BytesIO(pdf_bytes)
+    output.seek(0)
+    return output
+
+@router_api.post("/download")
+async def download_chat(req: DownloadRequest, user_id: str = Depends(get_current_user_id), backend: str = Query(...)):
+    chat_client = get_client(backend)
+    messages_list: List[StandardMessage] = await chat_client.get_messages(
+        user_id, req.chatId, req.startDate, req.endDate, enable_caching=req.enableCaching
+    )
+
+    if not messages_list:
+        raise HTTPException(status_code=404, detail="No messages found in the selected date range.")
+
+    chat_history = "\n\n".join([f"[{m.author.name} at {m.timestamp}]: {m.text}" for m in messages_list])
+    
+    if req.format == "pdf":
+        pdf_buffer = _create_pdf(chat_history, req.chatId)
+        return StreamingResponse(pdf_buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=\"{req.chatId}_{req.startDate}_to_{req.endDate}.pdf\""})
+    else: # txt
+        return StreamingResponse(
+            iter([chat_history.encode('utf-8')]),
+            media_type="text/plain",
+            headers={"Content-Disposition": f"attachment; filename=\"{req.chatId}_{req.startDate}_to_{req.endDate}.txt\""}
+        )
 
 @router_api.post("/clear-session")
 async def clear_session(user_id: str = Depends(get_current_user_id)):
