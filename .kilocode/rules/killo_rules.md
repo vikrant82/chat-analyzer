@@ -1,4 +1,4 @@
-# Cline Rule for Chat Analyzer
+# Killo Rule for Chat Analyzer
 
 ## On Session Start
 
