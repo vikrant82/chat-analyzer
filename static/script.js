@@ -775,81 +775,81 @@ document.addEventListener('DOMContentLoaded', () => {
     
     checkSessionOnLoad();
 
-    // --- Bot Management ---
-    async function loadBots() {
-        if (!appState.activeBackend) return;
-        registeredBotsList.innerHTML = '<tr><td colspan="2">Loading...</td></tr>';
-        try {
-            const bots = await makeApiRequest(`/api/${appState.activeBackend}/bots`, { method: 'GET' }, config.timeouts.loadChats);
-            registeredBotsList.innerHTML = '';
-            if (bots.length > 0) {
-                bots.forEach(bot => {
-                    const row = registeredBotsList.insertRow();
-                    const nameCell = row.insertCell(0);
-                    const actionCell = row.insertCell(1);
-                    nameCell.textContent = bot.name;
-                    
-                    const deleteButton = document.createElement('button');
-                    deleteButton.textContent = '🗑️'; // Use a trash can emoji for a smaller button
-                    deleteButton.classList.add('delete-bot-button');
-                    deleteButton.title = `Delete ${bot.name}`;
-                    deleteButton.onclick = () => handleDeleteBot(bot.name);
-                    actionCell.appendChild(deleteButton);
-                });
-            } else {
-                registeredBotsList.innerHTML = '<tr><td colspan="2">No bots registered for this service.</td></tr>';
-            }
-        } catch (error) {
-            registeredBotsList.innerHTML = `<tr><td colspan="2" class="error-message">Error loading bots: ${error.message}</td></tr>`;
-        }
-    }
-
-    async function handleRegisterBot() {
-        clearErrors();
-        const name = botNameInput.value.trim();
-        const bot_id = botIdInput.value.trim();
-        const token = botTokenInput.value.trim();
-        const webhook_url = webhookUrlInput.value.trim();
-
-        if (!name || !token || !bot_id) {
-            botManagementError.textContent = 'Bot Name, Bot ID, and Token are required.';
-            return;
-        }
-
-        try {
-            const payload = { name, token, bot_id };
-            if (webhook_url) {
-                payload.webhook_url = webhook_url;
-            }
-            await makeApiRequest(`/api/${appState.activeBackend}/bots`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            }, config.timeouts.login, registerBotButton);
-            
-            botNameInput.value = '';
-            botIdInput.value = '';
-            botTokenInput.value = '';
-            webhookUrlInput.value = '';
-            loadBots();
-        } catch (error) {
-            botManagementError.textContent = error.message || 'Failed to register bot.';
-        }
-    }
-
-    async function handleDeleteBot(botName) {
-        if (!confirm(`Are you sure you want to delete the bot "${botName}"?`)) {
-            return;
-        }
-        try {
-            await makeApiRequest(`/api/${appState.activeBackend}/bots/${botName}`, { method: 'DELETE' }, config.timeouts.login);
-            loadBots();
-        } catch (error) {
-            botManagementError.textContent = error.message || 'Failed to delete bot.';
-        }
-    }
-
     if (manageBotsButton) manageBotsButton.addEventListener('click', () => showSection('botManagementSection'));
     if (backToChatsButton) backToChatsButton.addEventListener('click', () => showSection('chatSection'));
     if (registerBotButton) registerBotButton.addEventListener('click', handleRegisterBot);
 });
+
+// --- Bot Management ---
+async function loadBots() {
+    if (!appState.activeBackend) return;
+    registeredBotsList.innerHTML = '<tr><td colspan="2">Loading...</td></tr>';
+    try {
+        const bots = await makeApiRequest(`/api/${appState.activeBackend}/bots`, { method: 'GET' }, config.timeouts.loadChats);
+        registeredBotsList.innerHTML = '';
+        if (bots.length > 0) {
+            bots.forEach(bot => {
+                const row = registeredBotsList.insertRow();
+                const nameCell = row.insertCell(0);
+                const actionCell = row.insertCell(1);
+                nameCell.textContent = bot.name;
+                
+                const deleteButton = document.createElement('button');
+                deleteButton.textContent = '🗑️'; // Use a trash can emoji for a smaller button
+                deleteButton.classList.add('delete-bot-button');
+                deleteButton.title = `Delete ${bot.name}`;
+                deleteButton.onclick = () => handleDeleteBot(bot.name);
+                actionCell.appendChild(deleteButton);
+            });
+        } else {
+            registeredBotsList.innerHTML = '<tr><td colspan="2">No bots registered for this service.</td></tr>';
+        }
+    } catch (error) {
+        registeredBotsList.innerHTML = `<tr><td colspan="2" class="error-message">Error loading bots: ${error.message}</td></tr>`;
+    }
+}
+
+async function handleRegisterBot() {
+    clearErrors();
+    const name = botNameInput.value.trim();
+    const bot_id = botIdInput.value.trim();
+    const token = botTokenInput.value.trim();
+    const webhook_url = webhookUrlInput.value.trim();
+
+    if (!name || !token || !bot_id) {
+        botManagementError.textContent = 'Bot Name, Bot ID, and Token are required.';
+        return;
+    }
+
+    try {
+        const payload = { name, token, bot_id };
+        if (webhook_url) {
+            payload.webhook_url = webhook_url;
+        }
+        await makeApiRequest(`/api/${appState.activeBackend}/bots`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }, config.timeouts.login, registerBotButton);
+        
+        botNameInput.value = '';
+        botIdInput.value = '';
+        botTokenInput.value = '';
+        webhookUrlInput.value = '';
+        loadBots();
+    } catch (error) {
+        botManagementError.textContent = error.message || 'Failed to register bot.';
+    }
+}
+
+async function handleDeleteBot(botName) {
+    if (!confirm(`Are you sure you want to delete the bot "${botName}"?`)) {
+        return;
+    }
+    try {
+        await makeApiRequest(`/api/${appState.activeBackend}/bots/${botName}`, { method: 'DELETE' }, config.timeouts.login);
+        loadBots();
+    } catch (error) {
+        botManagementError.textContent = error.message || 'Failed to delete bot.';
+    }
+}

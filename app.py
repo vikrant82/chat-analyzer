@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 # --- Global Configuration & State ---
 llm_clients = {}
+config = {}
 conversations: Dict[str, List[Dict[str, str]]] = {}
 message_cache: Dict[str, str] = {}
 session_tokens: Dict[str, str] = {}
@@ -92,10 +93,10 @@ class BotRegistrationRequest(BaseModel):
 async def lifespan(app: FastAPI):
     logger.info("Application startup: Initializing...")
     _load_app_sessions()
-    global llm_clients
+    global llm_clients, config
     try:
         with open('config.json', 'r') as f:
-            config = json.load(f)
+            config.update(json.load(f))
         google_ai_config = config.get('google_ai', {})
         openai_compatible_configs = config.get('openai_compatible', [])
         llm_clients = get_all_llm_clients(google_ai_config, openai_compatible_configs)
@@ -406,76 +407,70 @@ async def logout(user_id: str = Depends(get_current_user_id), backend: str = Que
 # Bot Management Endpoints
 # ===================================================================
 async def _register_bot_helper(backend: str, req: BotRegistrationRequest, user_id: str):
+    global config
+    if backend not in config.get('bots', {}):
+        config['bots'][backend] = []
+    if any(bot['name'] == req.name for bot in config['bots'][backend]):
+        raise HTTPException(status_code=400, detail=f"A bot with the name '{req.name}' already exists for {backend}.")
+    
+    new_bot = {"name": req.name, "token": req.token, "bot_id": req.bot_id}
+    config['bots'][backend].append(new_bot)
+
     try:
-        # First, save the bot to the config file
-        with open('config.json', 'r+') as f:
-            config = json.load(f)
-            if backend not in config.get('bots', {}):
-                config['bots'][backend] = []
-            if any(bot['name'] == req.name for bot in config['bots'][backend]):
-                raise HTTPException(status_code=400, detail=f"A bot with the name '{req.name}' already exists for {backend}.")
-            new_bot = {"name": req.name, "token": req.token, "bot_id": req.bot_id}
-            config['bots'][backend].append(new_bot)
-            f.seek(0)
+        with open('config.json', 'w') as f:
             json.dump(config, f, indent=2)
-            f.truncate()
-
-        # If a webhook URL is provided, attempt to register it
-        if req.webhook_url:
-            try:
-                if backend == 'webex':
-                    bot_client = WebexBotClient(bot_token=req.token)
-                    webhook_name = f"Chat Analyzer - {req.name}"
-                    target_url = f"{req.webhook_url.rstrip('/')}/api/bot/webex/webhook"
-                    bot_client.create_webhook(
-                        webhook_name=webhook_name,
-                        target_url=target_url,
-                        resource="messages",
-                        event="created",
-                        filter_str="mentionedPeople=me"
-                    )
-                    return {"status": "success", "message": f"Bot '{req.name}' registered and webhook created."}
-                else:
-                    # Placeholder for other backends
-                    logger.warning(f"Webhook registration not implemented for backend: {backend}")
-
-            except Exception as webhook_error:
-                # If webhook registration fails, the bot is still saved.
-                # Return a warning to the user.
-                logger.error(f"Webhook registration failed: {webhook_error}", exc_info=True)
-                return {"status": "warning", "message": f"Bot '{req.name}' was registered, but webhook creation failed. Please register the webhook manually."}
-
-        return {"status": "success", "message": f"Bot '{req.name}' registered for {backend}."}
     except Exception as e:
-        logger.error(f"Failed to register bot: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to update configuration.")
+        logger.error(f"Failed to save bot registration to config.json: {e}", exc_info=True)
+        # Attempt to roll back the in-memory change
+        config['bots'][backend].pop()
+        raise HTTPException(status_code=500, detail="Failed to save configuration.")
+
+    # If a webhook URL is provided, attempt to register it
+    if req.webhook_url:
+        try:
+            if backend == 'webex':
+                bot_client = WebexBotClient(bot_token=req.token)
+                webhook_name = f"Chat Analyzer - {req.name}"
+                target_url = f"{req.webhook_url.rstrip('/')}/api/bot/webex/webhook"
+                bot_client.create_webhook(
+                    webhook_name=webhook_name,
+                    target_url=target_url,
+                    resource="messages",
+                    event="created",
+                    filter_str="mentionedPeople=me"
+                )
+                return {"status": "success", "message": f"Bot '{req.name}' registered and webhook created."}
+            else:
+                logger.warning(f"Webhook registration not implemented for backend: {backend}")
+        except Exception as webhook_error:
+            logger.error(f"Webhook registration failed: {webhook_error}", exc_info=True)
+            return {"status": "warning", "message": f"Bot '{req.name}' was registered, but webhook creation failed. Please register the webhook manually."}
+
+    return {"status": "success", "message": f"Bot '{req.name}' registered for {backend}."}
 
 async def _get_bots_helper(backend: str, user_id: str):
-    try:
-        with open('config.json', 'r') as f:
-            config = json.load(f)
-        bots = config.get('bots', {}).get(backend, [])
-        return [{"name": bot["name"]} for bot in bots]
-    except Exception as e:
-        logger.error(f"Failed to get bots: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to read configuration.")
+    bots = config.get('bots', {}).get(backend, [])
+    return [{"name": bot["name"]} for bot in bots]
 
 async def _delete_bot_helper(backend: str, bot_name: str, user_id: str):
+    global config
+    bots = config.get('bots', {}).get(backend, [])
+    bot_to_remove = next((bot for bot in bots if bot['name'] == bot_name), None)
+    if not bot_to_remove:
+        raise HTTPException(status_code=404, detail=f"Bot '{bot_name}' not found for {backend}.")
+    
+    config['bots'][backend] = [bot for bot in bots if bot['name'] != bot_name]
+    
     try:
-        with open('config.json', 'r+') as f:
-            config = json.load(f)
-            bots = config.get('bots', {}).get(backend, [])
-            bot_to_remove = next((bot for bot in bots if bot['name'] == bot_name), None)
-            if not bot_to_remove:
-                raise HTTPException(status_code=404, detail=f"Bot '{bot_name}' not found for {backend}.")
-            config['bots'][backend] = [bot for bot in bots if bot['name'] != bot_name]
-            f.seek(0)
+        with open('config.json', 'w') as f:
             json.dump(config, f, indent=2)
-            f.truncate()
-        return {"status": "success", "message": f"Bot '{bot_name}' deleted."}
     except Exception as e:
-        logger.error(f"Failed to delete bot: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to update configuration.")
+        logger.error(f"Failed to save bot deletion to config.json: {e}", exc_info=True)
+        # Attempt to roll back the in-memory change
+        config['bots'][backend].append(bot_to_remove)
+        raise HTTPException(status_code=500, detail="Failed to save configuration.")
+
+    return {"status": "success", "message": f"Bot '{bot_name}' deleted."}
 
 @router_webex.post("/bots", tags=["Bot Management"])
 async def register_webex_bot(req: BotRegistrationRequest, user_id: str = Depends(get_current_user_id)):
@@ -505,14 +500,12 @@ async def delete_telegram_bot(bot_name: str, user_id: str = Depends(get_current_
 # Bot Webhook Endpoints
 # ===================================================================
 def _find_bot_in_config(webhook_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Helper function to find the mentioned bot in the config."""
+    """Helper function to find the mentioned bot in the global config."""
     mentioned_ids_encoded = webhook_data.get('data', {}).get('mentionedPeople', [])
     if not mentioned_ids_encoded:
         logger.info("Webhook received, but no one was mentioned.")
         return None
 
-    with open('config.json', 'r') as f:
-        config = json.load(f)
     webex_bots = config.get('bots', {}).get('webex', [])
 
     # Decode all mentioned IDs from Base64
