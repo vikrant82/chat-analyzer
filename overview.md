@@ -4,6 +4,7 @@
    - **Purpose:** What is the primary goal of this project? What problem does it solve?
    - **User:** Who is the intended user of this application? (e.g., developers, end-consumers, business analysts)
    - **Core Functionality:** In a few bullet points, describe the main features.
+     - **Webex Bot Integration**: Allows users to register a Webex bot and invoke the chat analyzer from any Webex space by mentioning the bot.
 
 **2. Technology Stack**
    - **Languages:** List all programming languages used (e.g., Python, TypeScript, Java).
@@ -29,15 +30,26 @@
 
 **5. Architecture & Core Logic**
    - **Key Modules/Components:** Identify and describe the most critical files or modules that contain the core business logic. Explain their responsibility.
-     - **File:** `[path/to/important/file.js]`
-     - **Responsibility:** [Brief description of what this file does].
+     - **File:** `app.py`
+     - **Responsibility:** Main FastAPI application. Handles all API routing, user authentication, and orchestrates the chat analysis process. Contains the webhook handler for bot interactions.
+     - **File:** `clients/factory.py`
+     - **Responsibility:** Implements the factory pattern to instantiate the correct chat client (`telegram`, `webex`) based on the user's selection.
+     - **File:** `clients/webex_bot_client_impl.py`
+     - **Responsibility:** A dedicated client for handling API interactions for Webex bots, using a long-lived bot token.
+     - **File:** `static/script.js`
+     - **Responsibility:** Handles all frontend logic, including user authentication, chat selection, bot management, and rendering the conversational UI.
    - **Data Flow:** Describe how data moves through the system. For a web app, this might be: `User Interaction -> React Component -> State Management (Redux/Context) -> API Service Call -> Backend API Endpoint -> Database`.
    - **State Management:** If applicable, describe the state management strategy (e.g., Redux, Zustand, React Context, Vuex).
 
 **6. API & External Interactions**
    - **Internal APIs:** If the project has a backend, list the main API endpoints defined and what they do.
-     - `POST /api/users`: Creates a new user.
-     - `GET /api/products/:id`: Fetches a single product.
+     - `POST /api/login`: Initiates the login process for a given backend (Telegram or Webex).
+     - `GET /api/chats`: Fetches the list of available chats for the authenticated user.
+     - `POST /api/chat`: The main endpoint for performing AI analysis on a selected chat.
+     - `POST /api/{backend}/bots`: Registers a new bot for the specified backend.
+     - `GET /api/{backend}/bots`: Retrieves the list of registered bots for a backend.
+     - `DELETE /api/{backend}/bots/{bot_name}`: Deletes a registered bot.
+     - `POST /api/bot/webex/webhook`: The public endpoint that receives webhook notifications from Webex when a bot is mentioned.
    - **External Services:** List any external APIs or services the application communicates with (e.g., Stripe for payments, S3 for file storage, Google Maps API).
 
 **7. Configuration & Environment**

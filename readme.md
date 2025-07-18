@@ -12,7 +12,9 @@ The application features a robust caching system to ensure fast, repeated analys
     -   Engage in a continuous conversation with the AI about your chat data.
     -   Ask follow-up questions without re-submitting the initial query.
     -   The AI maintains context throughout the conversation.
--   **AI-Powered Analysis**:
+-   **AI-Powered Analysis & Bot Integration**:
+    -   **Webex Bot Support**: Register a Webex bot to invoke the analyzer directly from any Webex space.
+    -   Mention the bot (e.g., `@MyAnalyzerBot summarize last 2 days`) to get an instant summary.
     -   **Real-time Streaming**: View AI responses as they are generated, word-by-word.
     -   **Summarization**: Generate concise summaries of chat conversations for a given period.
     -   **Question & Answering**: Ask specific questions about the chat content and receive AI-generated answers based *only* on the provided message history.
@@ -31,6 +33,8 @@ The application features a robust caching system to ensure fast, repeated analys
     -   **Searchable Chat List**: Quickly find the chat you're looking for.
     -   **Modern Date Picker**: Includes pre-defined ranges like "Last 7 Days".
     -   Simple, step-by-step process: Login -> Select Chat -> Analyze.
+    -   **Bot Management UI**: A simple interface to register, view, and delete your bots.
+    -   **Automated Webhook Setup**: Automatically registers the necessary webhook with Webex when you provide a public URL, simplifying setup.
 
 ## Project Structure
 
@@ -186,6 +190,16 @@ You may want to build a local image with changes or if unable to access docker h
     1.  Go to [Google AI Studio](https://aistudio.google.com/app/apikey).
     2.  Create and copy your API key.
 
+### Configure a Webex Bot (Optional)
+1.  Go to the [Webex App Hub for Developers](https://developer.webex.com/my-apps) and create a new Bot.
+2.  Give your bot a name and icon.
+3.  Copy the **Bot access token**. This is the token you will use to register the bot in the Chat Analyzer.
+4.  To find your bot's **Person ID**, use the following `curl` command in your terminal, replacing `YOUR_BOT_ACCESS_TOKEN` with the token you just copied:
+    ```bash
+    curl --request GET --header "Authorization: Bearer YOUR_BOT_ACCESS_TOKEN" https://webexapis.com/v1/people/me
+    ```
+5.  The `id` field in the JSON response is your bot's Person ID.
+
 ### Create `config.json` File
 
 In the root of the project, create a `config.json` file and populate it with your credentials.
@@ -211,6 +225,16 @@ In the root of the project, create a `config.json` file and populate it with you
   "lm_studio": {
     "url": "http://localhost:1234/v1/chat/completions",
     "default_model": "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF"
+  },
+  "bots": {
+    "webex": [
+      {
+        "name": "My Analyzer Bot",
+        "bot_id": "YOUR_BOTS_PERSON_ID (Base64 Encoded)",
+        "token": "YOUR_BOTS_ACCESS_TOKEN"
+      }
+    ],
+    "telegram": []
   }
 }
 ```
@@ -243,7 +267,16 @@ Once logged in, you will be on the "Analyze Chats" screen.
 5.  **(Optional) Start with a Specific Question**: Before starting the chat, you can enter a specific question in the text box. If you do, the AI will answer that question directly instead of providing a general summary.
 6.  **Start Chat**: Click the **"Start Chat"** button to begin the analysis and open the conversational chat window.
 7.  **Ask Follow-up Questions**: Use the chat input to ask follow-up questions about the analyzed data.
-7.  **Clear & Start New**: Click the **"Clear & Start New"** button to clear the conversation and start a new analysis.
+8.  **Clear & Start New**: Click the **"Clear & Start New"** button to clear the conversation and start a new analysis.
+
+### Using the Webex Bot
+
+1.  After logging into the application, click the **"Manage Bots"** button.
+2.  Register your Webex bot using the name, Person ID, and Access Token you retrieved earlier.
+3.  **Crucially**, if you are running the application locally, you must expose it to the internet using a tool like **ngrok**. Start ngrok with the command `ngrok http 8000`.
+4.  Copy the public HTTPS URL provided by ngrok (e.g., `https://abcdef123.ngrok.io`).
+5.  In the "Manage Bots" UI, provide this public URL in the "Public Webhook URL" field during registration. This will allow the application to automatically create the necessary webhook in Webex.
+6.  Once registered, go to any Webex space your bot has been added to and type `@YourBotName summarize last 2 days`. The bot will respond in the space.
 
 ### Switching Services
 
