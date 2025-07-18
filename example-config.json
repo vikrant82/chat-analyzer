@@ -27,5 +27,15 @@
       "api_key": "YOUR_PERPLEXITY_API_KEY",
       "default_model": "llama-3-sonar-large-32k-online"
     }
-  ]
+  ],
+  "bots": {
+    "webex": [
+      {
+        "name": "My Webex Analyzer",
+        "bot_id": "YOUR_WEBEX_BOT_ID",
+        "token": "YOUR_WEBEX_BOT_TOKEN"
+      }
+    ],
+    "telegram": []
+  }
 }
