@@ -32,5 +32,29 @@ The primary objective was to allow users to invoke the chat analysis features of
 *   Users can successfully register a Webex bot, and the bot will post an acknowledgment message when mentioned in a Webex space.
 *   The system correctly handles the complex ID correlation required by the Webex API.
 
-### Next Steps
-The immediate next step is to replace the simple acknowledgment message with the actual AI-powered summarization and Q&A logic, which will complete the feature's core functionality.
+
+**Next Steps: Completing the AI Bot Integration**
+
+We have successfully built the foundational infrastructure for the bot. It can be registered, and it correctly responds when mentioned. Now, we need to replace the simple acknowledgment with the application's core AI analysis logic.
+
+Here is the plan to achieve this:
+
+1.  **Parse the User's Command:**
+    *   In the `webex_webhook` function in [`app.py`](app.py:1), we need to parse the `message_text` to extract the user's actual command (e.g., "summarize last 2 days").
+    *   We also need to determine the date range from the command. We can use a simple keyword search (e.g., "last 2 days", "yesterday") or a more robust natural language processing library to extract the start and end dates.
+
+2.  **Fetch Chat History:**
+    *   Using the `room_id` from the webhook and the extracted date range, we will use the `WebexBotClient` to fetch the relevant message history from the Webex space.
+
+3.  **Invoke the AI Engine:**
+    *   We will pass the fetched message history to the existing `llm_client.call_conversational` function, just as the main `/api/chat` endpoint does. This reuses our core AI logic.
+
+4.  **Post the AI Response:**
+    *   The AI-generated summary or answer will be taken from the `call_conversational` stream.
+    *   We will then use the `WebexBotClient`'s `post_message` function to send this complete and formatted response back to the Webex space.
+
+5.  **Handle Interactive Clarifications (Stretch Goal):**
+    *   If the user's command is ambiguous (e.g., no date range), the AI engine can be prompted to return a clarifying question.
+    *   The bot would then post this question to the space and temporarily store the conversation's context. When the user replies, the webhook handler would use this stored context to complete the original request.
+
+By following these steps, we will transform the bot from a simple acknowledgment tool into a fully functional, AI-powered chat assistant.
