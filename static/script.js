@@ -68,6 +68,17 @@ const startChatButton = document.getElementById('startChatButton');
 const initialQuestion = document.getElementById('initialQuestion');
 const downloadChatButton = document.getElementById('downloadChatButton');
 const downloadFormat = document.getElementById('downloadFormat');
+const botManagementSection = document.getElementById('botManagementSection');
+const manageBotsButton = document.getElementById('manageBotsButton');
+const backToChatsButton = document.getElementById('backToChatsButton');
+const botManagementTitle = document.getElementById('botManagementTitle');
+const botNameInput = document.getElementById('botName');
+const botIdInput = document.getElementById('botId');
+const botTokenInput = document.getElementById('botToken');
+const webhookUrlInput = document.getElementById('webhookUrl');
+const registerBotButton = document.getElementById('registerBotButton');
+const botManagementError = document.getElementById('botManagementError');
+const registeredBotsList = document.getElementById('registeredBotsList');
 
 // --- Utility Functions ---
 function setLoadingState(buttonElement, isLoading, loadingText = 'Processing...') {
@@ -91,6 +102,7 @@ function clearErrors() {
     if (dateError) dateError.textContent = '';
     if (chatLoadingError) chatLoadingError.textContent = '';
     if (modelError) modelError.textContent = '';
+    if (botManagementError) botManagementError.textContent = '';
 }
 
 function updateStartChatButtonState() {
@@ -209,6 +221,13 @@ function showSection(sectionName) {
         if (appState.chatListStatus[appState.activeBackend] === 'unloaded') {
             handleLoadChats();
         }
+    } else if (sectionName === 'botManagementSection') {
+        if (!appState.activeBackend) {
+            showSection('loginSection');
+            return;
+        }
+        botManagementTitle.textContent = `Manage Bots (${appState.activeBackend.charAt(0).toUpperCase() + appState.activeBackend.slice(1)})`;
+        loadBots();
     } else if (sectionName === 'loginSection') {
         if (backendSelect) {
             backendSelect.value = appState.activeBackend || 'telegram';
@@ -755,4 +774,82 @@ document.addEventListener('DOMContentLoaded', () => {
     if (downloadChatButton) downloadChatButton.addEventListener('click', handleDownloadChat);
     
     checkSessionOnLoad();
+
+    // --- Bot Management ---
+    async function loadBots() {
+        if (!appState.activeBackend) return;
+        registeredBotsList.innerHTML = '<tr><td colspan="2">Loading...</td></tr>';
+        try {
+            const bots = await makeApiRequest(`/api/${appState.activeBackend}/bots`, { method: 'GET' }, config.timeouts.loadChats);
+            registeredBotsList.innerHTML = '';
+            if (bots.length > 0) {
+                bots.forEach(bot => {
+                    const row = registeredBotsList.insertRow();
+                    const nameCell = row.insertCell(0);
+                    const actionCell = row.insertCell(1);
+                    nameCell.textContent = bot.name;
+                    
+                    const deleteButton = document.createElement('button');
+                    deleteButton.textContent = '🗑️'; // Use a trash can emoji for a smaller button
+                    deleteButton.classList.add('delete-bot-button');
+                    deleteButton.title = `Delete ${bot.name}`;
+                    deleteButton.onclick = () => handleDeleteBot(bot.name);
+                    actionCell.appendChild(deleteButton);
+                });
+            } else {
+                registeredBotsList.innerHTML = '<tr><td colspan="2">No bots registered for this service.</td></tr>';
+            }
+        } catch (error) {
+            registeredBotsList.innerHTML = `<tr><td colspan="2" class="error-message">Error loading bots: ${error.message}</td></tr>`;
+        }
+    }
+
+    async function handleRegisterBot() {
+        clearErrors();
+        const name = botNameInput.value.trim();
+        const bot_id = botIdInput.value.trim();
+        const token = botTokenInput.value.trim();
+        const webhook_url = webhookUrlInput.value.trim();
+
+        if (!name || !token || !bot_id) {
+            botManagementError.textContent = 'Bot Name, Bot ID, and Token are required.';
+            return;
+        }
+
+        try {
+            const payload = { name, token, bot_id };
+            if (webhook_url) {
+                payload.webhook_url = webhook_url;
+            }
+            await makeApiRequest(`/api/${appState.activeBackend}/bots`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }, config.timeouts.login, registerBotButton);
+            
+            botNameInput.value = '';
+            botIdInput.value = '';
+            botTokenInput.value = '';
+            webhookUrlInput.value = '';
+            loadBots();
+        } catch (error) {
+            botManagementError.textContent = error.message || 'Failed to register bot.';
+        }
+    }
+
+    async function handleDeleteBot(botName) {
+        if (!confirm(`Are you sure you want to delete the bot "${botName}"?`)) {
+            return;
+        }
+        try {
+            await makeApiRequest(`/api/${appState.activeBackend}/bots/${botName}`, { method: 'DELETE' }, config.timeouts.login);
+            loadBots();
+        } catch (error) {
+            botManagementError.textContent = error.message || 'Failed to delete bot.';
+        }
+    }
+
+    if (manageBotsButton) manageBotsButton.addEventListener('click', () => showSection('botManagementSection'));
+    if (backToChatsButton) backToChatsButton.addEventListener('click', () => showSection('chatSection'));
+    if (registerBotButton) registerBotButton.addEventListener('click', handleRegisterBot);
 });

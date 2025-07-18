@@ -5,6 +5,7 @@ import secrets
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 import asyncio
+import base64
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -22,6 +23,7 @@ from io import BytesIO
 from clients.factory import get_client
 from clients.base_client import Message as StandardMessage
 from ai.factory import get_all_llm_clients
+from clients.webex_bot_client_impl import WebexBotClient
 
 # --- Basic Setup & Logging ---
 logging.basicConfig(
@@ -80,6 +82,12 @@ class DownloadRequest(BaseModel):
     enableCaching: bool
     format: str  # 'pdf' or 'txt'
 
+class BotRegistrationRequest(BaseModel):
+    name: str
+    token: str
+    bot_id: str
+    webhook_url: Optional[str] = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Application startup: Initializing...")
@@ -111,9 +119,10 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR, html=True), name="static"
 # ===================================================================
 # API ROUTERS
 # ===================================================================
-router_telegram = APIRouter(prefix="/api/telegram", tags=["Telegram Authentication"])
-router_webex = APIRouter(prefix="/api/webex", tags=["Webex Authentication"])
+router_telegram = APIRouter(prefix="/api/telegram", tags=["Telegram"])
+router_webex = APIRouter(prefix="/api/webex", tags=["Webex"])
 router_api = APIRouter(prefix="/api", tags=["Generic API"])
+router_bot = APIRouter(prefix="/api/bot", tags=["Bot Webhooks"])
 
 # ===================================================================
 # Telegram Authentication Endpoints
@@ -147,22 +156,6 @@ async def telegram_verify(req: TelegramVerifyRequest):
 # ===================================================================
 # Webex Authentication Endpoints
 # ===================================================================
-@router_api.post("/login")
-async def unified_login(req: Request, backend: str = Query(...)):
-    client = get_client(backend)
-    try:
-        if backend == 'telegram':
-            body = await req.json()
-            return await client.login(body)
-        else:
-            response = await client.login({})
-            if response.get("status") == "redirect_required":
-                return response
-            raise HTTPException(status_code=500, detail=f"Failed to get {backend} auth URL.")
-    except Exception as e:
-        logger.error(f"{backend} login failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
 @router_webex.get("/callback")
 async def webex_callback(code: str, request: Request):
     client = get_client("webex")
@@ -198,6 +191,22 @@ async def get_current_user_id(authorization: str = Header(...)) -> str:
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid or expired token.")
     return user_id
+
+@router_api.post("/login")
+async def unified_login(req: Request, backend: str = Query(...)):
+    client = get_client(backend)
+    try:
+        if backend == 'telegram':
+            body = await req.json()
+            return await client.login(body)
+        else:
+            response = await client.login({})
+            if response.get("status") == "redirect_required":
+                return response
+            raise HTTPException(status_code=500, detail=f"Failed to get {backend} auth URL.")
+    except Exception as e:
+        logger.error(f"{backend} login failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router_api.get("/models")
 async def get_models():
@@ -300,7 +309,7 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
         yield f"data: {json.dumps({'type': 'status', 'message': f'Found {message_count} messages. Summarizing...'})}\n\n"
         
         try:
-            stream = llm_client.call_conversational(
+            stream = await llm_client.call_conversational(
                 req.modelName,
                 current_conversation,
                 original_messages
@@ -318,14 +327,11 @@ def _create_pdf(text: str, chat_id: str) -> BytesIO:
     pdf.add_page()
     pdf.set_font("Arial", size=10)
     
-    # Add chat ID as title
     pdf.set_font("Arial", 'B', 14)
     pdf.cell(0, 10, f"Chat History: {chat_id}", 0, 1, 'C')
     pdf.ln(10)
     
-    # Add content
     pdf.set_font("Arial", size=10)
-    # Use multi_cell for better handling of long text and newlines
     pdf.multi_cell(0, 5, text.encode('latin-1', 'replace').decode('latin-1'))
     
     pdf_bytes = pdf.output(dest='S')
@@ -397,14 +403,189 @@ async def logout(user_id: str = Depends(get_current_user_id), backend: str = Que
     return {"status": "success", "message": "Logout successful."}
 
 # ===================================================================
+# Bot Management Endpoints
+# ===================================================================
+async def _register_bot_helper(backend: str, req: BotRegistrationRequest, user_id: str):
+    try:
+        # First, save the bot to the config file
+        with open('config.json', 'r+') as f:
+            config = json.load(f)
+            if backend not in config.get('bots', {}):
+                config['bots'][backend] = []
+            if any(bot['name'] == req.name for bot in config['bots'][backend]):
+                raise HTTPException(status_code=400, detail=f"A bot with the name '{req.name}' already exists for {backend}.")
+            new_bot = {"name": req.name, "token": req.token, "bot_id": req.bot_id}
+            config['bots'][backend].append(new_bot)
+            f.seek(0)
+            json.dump(config, f, indent=2)
+            f.truncate()
+
+        # If a webhook URL is provided, attempt to register it
+        if req.webhook_url:
+            try:
+                if backend == 'webex':
+                    bot_client = WebexBotClient(bot_token=req.token)
+                    webhook_name = f"Chat Analyzer - {req.name}"
+                    target_url = f"{req.webhook_url.rstrip('/')}/api/bot/webex/webhook"
+                    bot_client.create_webhook(
+                        webhook_name=webhook_name,
+                        target_url=target_url,
+                        resource="messages",
+                        event="created",
+                        filter_str="mentionedPeople=me"
+                    )
+                    return {"status": "success", "message": f"Bot '{req.name}' registered and webhook created."}
+                else:
+                    # Placeholder for other backends
+                    logger.warning(f"Webhook registration not implemented for backend: {backend}")
+
+            except Exception as webhook_error:
+                # If webhook registration fails, the bot is still saved.
+                # Return a warning to the user.
+                logger.error(f"Webhook registration failed: {webhook_error}", exc_info=True)
+                return {"status": "warning", "message": f"Bot '{req.name}' was registered, but webhook creation failed. Please register the webhook manually."}
+
+        return {"status": "success", "message": f"Bot '{req.name}' registered for {backend}."}
+    except Exception as e:
+        logger.error(f"Failed to register bot: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to update configuration.")
+
+async def _get_bots_helper(backend: str, user_id: str):
+    try:
+        with open('config.json', 'r') as f:
+            config = json.load(f)
+        bots = config.get('bots', {}).get(backend, [])
+        return [{"name": bot["name"]} for bot in bots]
+    except Exception as e:
+        logger.error(f"Failed to get bots: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to read configuration.")
+
+async def _delete_bot_helper(backend: str, bot_name: str, user_id: str):
+    try:
+        with open('config.json', 'r+') as f:
+            config = json.load(f)
+            bots = config.get('bots', {}).get(backend, [])
+            bot_to_remove = next((bot for bot in bots if bot['name'] == bot_name), None)
+            if not bot_to_remove:
+                raise HTTPException(status_code=404, detail=f"Bot '{bot_name}' not found for {backend}.")
+            config['bots'][backend] = [bot for bot in bots if bot['name'] != bot_name]
+            f.seek(0)
+            json.dump(config, f, indent=2)
+            f.truncate()
+        return {"status": "success", "message": f"Bot '{bot_name}' deleted."}
+    except Exception as e:
+        logger.error(f"Failed to delete bot: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to update configuration.")
+
+@router_webex.post("/bots", tags=["Bot Management"])
+async def register_webex_bot(req: BotRegistrationRequest, user_id: str = Depends(get_current_user_id)):
+    return await _register_bot_helper("webex", req, user_id)
+
+@router_webex.get("/bots", tags=["Bot Management"])
+async def get_webex_bots(user_id: str = Depends(get_current_user_id)):
+    return await _get_bots_helper("webex", user_id)
+
+@router_webex.delete("/bots/{bot_name}", tags=["Bot Management"])
+async def delete_webex_bot(bot_name: str, user_id: str = Depends(get_current_user_id)):
+    return await _delete_bot_helper("webex", bot_name, user_id)
+
+@router_telegram.post("/bots", tags=["Bot Management"])
+async def register_telegram_bot(req: BotRegistrationRequest, user_id: str = Depends(get_current_user_id)):
+    return await _register_bot_helper("telegram", req, user_id)
+
+@router_telegram.get("/bots", tags=["Bot Management"])
+async def get_telegram_bots(user_id: str = Depends(get_current_user_id)):
+    return await _get_bots_helper("telegram", user_id)
+
+@router_telegram.delete("/bots/{bot_name}", tags=["Bot Management"])
+async def delete_telegram_bot(bot_name: str, user_id: str = Depends(get_current_user_id)):
+    return await _delete_bot_helper("telegram", bot_name, user_id)
+
+# ===================================================================
+# Bot Webhook Endpoints
+# ===================================================================
+def _find_bot_in_config(webhook_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Helper function to find the mentioned bot in the config."""
+    mentioned_ids_encoded = webhook_data.get('data', {}).get('mentionedPeople', [])
+    if not mentioned_ids_encoded:
+        logger.info("Webhook received, but no one was mentioned.")
+        return None
+
+    with open('config.json', 'r') as f:
+        config = json.load(f)
+    webex_bots = config.get('bots', {}).get('webex', [])
+
+    # Decode all mentioned IDs from Base64
+    decoded_mentioned_uuids = set()
+    for encoded_id in mentioned_ids_encoded:
+        try:
+            padded_id = encoded_id + '=' * (-len(encoded_id) % 4)
+            decoded_uri = base64.urlsafe_b64decode(padded_id).decode('utf-8')
+            decoded_mentioned_uuids.add(decoded_uri.split('/')[-1])
+        except Exception as e:
+            logger.warning(f"Could not decode a mentioned ID: {encoded_id}, Error: {e}")
+            continue
+
+    # Find the first registered bot that matches one of the decoded mentioned IDs
+    for bot in webex_bots:
+        try:
+            padded_stored_id = bot['bot_id'] + '=' * (-len(bot['bot_id']) % 4)
+            decoded_stored_id = base64.urlsafe_b64decode(padded_stored_id).decode('utf-8')
+            stored_uuid = decoded_stored_id.split('/')[-1]
+            if stored_uuid in decoded_mentioned_uuids:
+                logger.info(f"Webhook matched registered bot: {bot['name']}")
+                return bot
+        except Exception as e:
+            logger.warning(f"Could not process a stored bot_id: {bot['bot_id']}, Error: {e}")
+            continue
+    
+    logger.info("Webhook received, but no matching registered bot was found.")
+    return None
+
+@router_bot.post("/webex/webhook")
+async def webex_webhook(req: Request):
+    try:
+        webhook_data = await req.json()
+        logger.info(f"Received Webex webhook: {webhook_data}")
+        
+        if webhook_data.get('resource') != 'messages' or webhook_data.get('event') != 'created':
+            return {"status": "ignored", "reason": "Not a new message event."}
+        
+        bot_config = _find_bot_in_config(webhook_data)
+        if not bot_config:
+            return {"status": "ignored", "reason": "Message not for a registered bot."}
+
+        bot_client = WebexBotClient(bot_token=bot_config['token'])
+        
+        message_id = webhook_data['data']['id']
+        message_details = bot_client.get_messages(id=message_id)
+        if not message_details:
+            raise Exception("Could not fetch message details.")
+
+        message_text = message_details[0].get('text', '').strip()
+        room_id = message_details[0].get('roomId')
+
+        # To-Do: Replace this with the actual AI analysis logic
+        response_text = f"I received your message: '{message_text}'"
+        if room_id:
+            bot_client.post_message(room_id=room_id, text=response_text)
+
+        return {"status": "processed"}
+
+    except Exception as e:
+        logger.error(f"Error processing Webex webhook: {e}", exc_info=True)
+        return {"status": "error", "detail": str(e)}
+
+# ===================================================================
 # Frontend Serving and App Registration
 # ===================================================================
 @app.get("/", response_class=FileResponse, include_in_schema=False)
 async def root():
     return FileResponse(os.path.join(STATIC_DIR, 'index.html'))
 
-app.include_router(router_telegram) # Keep for /verify
-app.include_router(router_webex) # Keep for /callback
+app.include_router(router_telegram)
+app.include_router(router_webex)
+app.include_router(router_bot)
 app.include_router(router_api)
 
 if __name__ == "__main__":
