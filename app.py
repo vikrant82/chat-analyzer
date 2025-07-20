@@ -3,7 +3,7 @@ import logging
 import os
 import secrets
 from contextlib import asynccontextmanager
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 import asyncio
 import base64
 from datetime import datetime, timedelta, timezone
@@ -24,6 +24,7 @@ from clients.factory import get_client
 from clients.base_client import Message as StandardMessage
 from ai.factory import get_all_llm_clients
 from clients.webex_bot_client_impl import WebexBotClient
+from bot_manager import BotManager
 
 # --- Basic Setup & Logging ---
 logging.basicConfig(
@@ -41,8 +42,9 @@ llm_clients = {}
 config = {}
 conversations: Dict[str, List[Dict[str, str]]] = {}
 message_cache: Dict[str, str] = {}
-session_tokens: Dict[str, str] = {}
+session_tokens: Dict[str, Dict[str, str]] = {}
 SESSIONS_FILE = "sessions/app_sessions.json"
+bot_manager = BotManager()
 
 def _save_app_sessions():
     """Saves the current session_tokens dictionary to the file system."""
@@ -145,7 +147,7 @@ async def telegram_verify(req: TelegramVerifyRequest):
         if verification_result.get("status") == "success":
             user_id = verification_result["user_identifier"]
             token = secrets.token_urlsafe(32)
-            session_tokens[token] = user_id
+            session_tokens[token] = {"user_id": user_id, "backend": "telegram"}
             _save_app_sessions()
             return {"status": "success", "token": token}
             
@@ -167,7 +169,7 @@ async def webex_callback(code: str, request: Request):
             raise Exception("Verification did not return a user identifier.")
         
         token = secrets.token_urlsafe(32)
-        session_tokens[token] = user_id
+        session_tokens[token] = {"user_id": user_id, "backend": "webex"}
         _save_app_sessions()
         
         base_url = str(request.base_url).rstrip('/')
@@ -188,10 +190,10 @@ async def get_current_user_id(authorization: str = Header(...)) -> str:
     if scheme.lower() != 'bearer' or not token:
         raise HTTPException(status_code=401, detail="Invalid authorization scheme.")
     
-    user_id = session_tokens.get(token)
-    if not user_id:
+    session_data = session_tokens.get(token)
+    if not session_data or "user_id" not in session_data:
         raise HTTPException(status_code=401, detail="Invalid or expired token.")
-    return user_id
+    return session_data["user_id"]
 
 @router_api.post("/login")
 async def unified_login(req: Request, backend: str = Query(...)):
@@ -236,7 +238,7 @@ async def get_session_status(user_id: str = Depends(get_current_user_id), backen
     if is_valid:
         return {"status": "authorized"}
     else:
-        token_to_remove = next((token for token, uid in session_tokens.items() if uid == user_id), None)
+        token_to_remove = next((token for token, data in session_tokens.items() if data.get("user_id") == user_id), None)
         if token_to_remove:
             keys_to_delete = [key for key in message_cache if key.startswith(token_to_remove)]
             for key in keys_to_delete:
@@ -279,7 +281,7 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
     if not llm_client:
         raise HTTPException(status_code=400, detail=f"Selected model '{req.modelName}' is not available.")
 
-    token = next((t for t, uid in session_tokens.items() if uid == user_id), None)
+    token = next((t for t, data in session_tokens.items() if data.get("user_id") == user_id), None)
     if not token:
         raise HTTPException(status_code=401, detail="Could not find session token for user.")
 
@@ -310,7 +312,7 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
         yield f"data: {json.dumps({'type': 'status', 'message': f'Found {message_count} messages. Summarizing...'})}\n\n"
         
         try:
-            stream = await llm_client.call_conversational(
+            stream = llm_client.call_conversational(
                 req.modelName,
                 current_conversation,
                 original_messages
@@ -364,7 +366,7 @@ async def download_chat(req: DownloadRequest, user_id: str = Depends(get_current
 
 @router_api.post("/clear-session")
 async def clear_session(user_id: str = Depends(get_current_user_id)):
-    token = next((t for t, uid in session_tokens.items() if uid == user_id), None)
+    token = next((t for t, data in session_tokens.items() if data.get("user_id") == user_id), None)
     if not token:
         raise HTTPException(status_code=401, detail="Could not find session token for user.")
     
@@ -381,7 +383,7 @@ async def clear_session(user_id: str = Depends(get_current_user_id)):
 
 @router_api.post("/logout")
 async def logout(user_id: str = Depends(get_current_user_id), backend: str = Query(...)):
-    token_to_remove = next((token for token, uid in session_tokens.items() if uid == user_id), None)
+    token_to_remove = next((token for token, data in session_tokens.items() if data.get("user_id") == user_id), None)
 
     if token_to_remove:
         keys_to_delete = [key for key in message_cache if key.startswith(token_to_remove)]
@@ -406,95 +408,65 @@ async def logout(user_id: str = Depends(get_current_user_id), backend: str = Que
 # ===================================================================
 # Bot Management Endpoints
 # ===================================================================
-async def _register_bot_helper(backend: str, req: BotRegistrationRequest, user_id: str):
-    global config
-    if backend not in config.get('bots', {}):
-        config['bots'][backend] = []
-    if any(bot['name'] == req.name for bot in config['bots'][backend]):
-        raise HTTPException(status_code=400, detail=f"A bot with the name '{req.name}' already exists for {backend}.")
-    
-    new_bot = {"name": req.name, "token": req.token, "bot_id": req.bot_id}
-    config['bots'][backend].append(new_bot)
-
-    try:
-        with open('config.json', 'w') as f:
-            json.dump(config, f, indent=2)
-    except Exception as e:
-        logger.error(f"Failed to save bot registration to config.json: {e}", exc_info=True)
-        # Attempt to roll back the in-memory change
-        config['bots'][backend].pop()
-        raise HTTPException(status_code=500, detail="Failed to save configuration.")
-
-    # If a webhook URL is provided, attempt to register it
-    if req.webhook_url:
-        try:
-            if backend == 'webex':
-                bot_client = WebexBotClient(bot_token=req.token)
-                webhook_name = f"Chat Analyzer - {req.name}"
-                target_url = f"{req.webhook_url.rstrip('/')}/api/bot/webex/webhook"
-                bot_client.create_webhook(
-                    webhook_name=webhook_name,
-                    target_url=target_url,
-                    resource="messages",
-                    event="created",
-                    filter_str="mentionedPeople=me"
-                )
-                return {"status": "success", "message": f"Bot '{req.name}' registered and webhook created."}
-            else:
-                logger.warning(f"Webhook registration not implemented for backend: {backend}")
-        except Exception as webhook_error:
-            logger.error(f"Webhook registration failed: {webhook_error}", exc_info=True)
-            return {"status": "warning", "message": f"Bot '{req.name}' was registered, but webhook creation failed. Please register the webhook manually."}
-
-    return {"status": "success", "message": f"Bot '{req.name}' registered for {backend}."}
-
-async def _get_bots_helper(backend: str, user_id: str):
-    bots = config.get('bots', {}).get(backend, [])
-    return [{"name": bot["name"]} for bot in bots]
-
-async def _delete_bot_helper(backend: str, bot_name: str, user_id: str):
-    global config
-    bots = config.get('bots', {}).get(backend, [])
-    bot_to_remove = next((bot for bot in bots if bot['name'] == bot_name), None)
-    if not bot_to_remove:
-        raise HTTPException(status_code=404, detail=f"Bot '{bot_name}' not found for {backend}.")
-    
-    config['bots'][backend] = [bot for bot in bots if bot['name'] != bot_name]
-    
-    try:
-        with open('config.json', 'w') as f:
-            json.dump(config, f, indent=2)
-    except Exception as e:
-        logger.error(f"Failed to save bot deletion to config.json: {e}", exc_info=True)
-        # Attempt to roll back the in-memory change
-        config['bots'][backend].append(bot_to_remove)
-        raise HTTPException(status_code=500, detail="Failed to save configuration.")
-
-    return {"status": "success", "message": f"Bot '{bot_name}' deleted."}
-
 @router_webex.post("/bots", tags=["Bot Management"])
 async def register_webex_bot(req: BotRegistrationRequest, user_id: str = Depends(get_current_user_id)):
-    return await _register_bot_helper("webex", req, user_id)
+    try:
+        bot_manager.register_bot("webex", req.name, req.token, req.bot_id)
+        if req.webhook_url:
+            bot_client = WebexBotClient(bot_token=req.token)
+            webhook_name = f"Chat Analyzer - {req.name}"
+            target_url = f"{req.webhook_url.rstrip('/')}/api/bot/webex/webhook"
+            bot_client.create_webhook(
+                webhook_name=webhook_name,
+                target_url=target_url,
+                resource="messages",
+                event="created",
+                filter_str="mentionedPeople=me"
+            )
+            return {"status": "success", "message": f"Bot '{req.name}' registered and webhook created."}
+        return {"status": "success", "message": f"Bot '{req.name}' registered for webex."}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to register bot: {e}")
 
 @router_webex.get("/bots", tags=["Bot Management"])
 async def get_webex_bots(user_id: str = Depends(get_current_user_id)):
-    return await _get_bots_helper("webex", user_id)
+    return bot_manager.get_bots("webex")
 
 @router_webex.delete("/bots/{bot_name}", tags=["Bot Management"])
 async def delete_webex_bot(bot_name: str, user_id: str = Depends(get_current_user_id)):
-    return await _delete_bot_helper("webex", bot_name, user_id)
+    try:
+        bot_manager.delete_bot("webex", bot_name)
+        return {"status": "success", "message": f"Bot '{bot_name}' deleted."}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete bot: {e}")
 
 @router_telegram.post("/bots", tags=["Bot Management"])
 async def register_telegram_bot(req: BotRegistrationRequest, user_id: str = Depends(get_current_user_id)):
-    return await _register_bot_helper("telegram", req, user_id)
+    try:
+        bot_manager.register_bot("telegram", req.name, req.token, req.bot_id)
+        return {"status": "success", "message": f"Bot '{req.name}' registered for telegram."}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to register bot: {e}")
 
 @router_telegram.get("/bots", tags=["Bot Management"])
 async def get_telegram_bots(user_id: str = Depends(get_current_user_id)):
-    return await _get_bots_helper("telegram", user_id)
+    return bot_manager.get_bots("telegram")
 
 @router_telegram.delete("/bots/{bot_name}", tags=["Bot Management"])
 async def delete_telegram_bot(bot_name: str, user_id: str = Depends(get_current_user_id)):
-    return await _delete_bot_helper("telegram", bot_name, user_id)
+    try:
+        bot_manager.delete_bot("telegram", bot_name)
+        return {"status": "success", "message": f"Bot '{bot_name}' deleted."}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete bot: {e}")
 
 # ===================================================================
 # Bot Webhook Endpoints
@@ -535,33 +507,104 @@ def _find_bot_in_config(webhook_data: Dict[str, Any]) -> Optional[Dict[str, Any]
     logger.info("Webhook received, but no matching registered bot was found.")
     return None
 
+async def _get_bot_and_message_details(webhook_data: Dict[str, Any]) -> Optional[Tuple[WebexBotClient, str, Optional[str]]]:
+    bot_config = _find_bot_in_config(webhook_data)
+    if not bot_config:
+        return None
+
+    bot_client = WebexBotClient(bot_token=bot_config['token'])
+    message_id = webhook_data['data']['id']
+    message_details = bot_client.get_messages(id=message_id)
+    if not message_details:
+        return None
+
+    message_text = message_details[0].get('text', '').strip()
+    room_id = message_details[0].get('roomId')
+    return bot_client, message_text, room_id
+
+async def _find_active_user_session(backend: str) -> Optional[str]:
+    client = get_client(backend)
+    for token, session_data in session_tokens.items():
+        if session_data.get("backend") == backend:
+            user_id_to_check = session_data.get("user_id")
+            if user_id_to_check and await client.is_session_valid(user_id_to_check):
+                return user_id_to_check
+    return None
+
+async def _process_bot_command(bot_client: WebexBotClient, webex_client: Any, active_user_id: str, room_id: str, message_text: str):
+    import re
+    days_match = re.search(r"last (\d+) days", message_text, re.IGNORECASE)
+    
+    end_date = datetime.now(timezone.utc)
+    if days_match:
+        num_days = int(days_match.group(1))
+        start_date = end_date - timedelta(days=num_days)
+        query = re.sub(r"\s*last \d+ days\s*", "", message_text, flags=re.IGNORECASE).strip()
+    else:
+        start_date = end_date - timedelta(days=1)
+        query = message_text
+
+    if not query:
+        query = "Provide a concise summary of the conversation."
+
+    logger.info(f"Bot using user '{active_user_id}' to fetch history for room {room_id}")
+    
+    try:
+        messages_list = await webex_client.get_messages(
+            active_user_id, room_id, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'), enable_caching=False
+        )
+        
+        if not messages_list:
+            bot_client.post_message(room_id=room_id, text="No messages found in the specified date range.")
+            return
+
+        formatted_messages = "\n\n".join(f"[{msg.author.name} at {msg.timestamp}]: {msg.text}" for msg in messages_list)
+
+        llm_provider = next(iter(llm_clients))
+        llm_client = llm_clients[llm_provider]
+        model_name = llm_client.get_default_model()
+        if not model_name:
+            raise Exception("No default AI model configured for the bot.")
+
+        conversation_history = [{"role": "user", "content": query}]
+        stream = llm_client.call_conversational(model_name, conversation_history, formatted_messages)
+
+        ai_response = ""
+        async for chunk in stream:
+            ai_response += chunk
+        
+        bot_client.post_message(room_id=room_id, text=ai_response)
+
+    except Exception as e:
+        logger.error(f"Bot failed to process message: {e}", exc_info=True)
+        error_message = "I encountered an error trying to process your request. Please check the server logs."
+        bot_client.post_message(room_id=room_id, text=error_message)
+
 @router_bot.post("/webex/webhook")
 async def webex_webhook(req: Request):
     try:
         webhook_data = await req.json()
         logger.info(f"Received Webex webhook: {webhook_data}")
-        
+
         if webhook_data.get('resource') != 'messages' or webhook_data.get('event') != 'created':
             return {"status": "ignored", "reason": "Not a new message event."}
+
+        details = await _get_bot_and_message_details(webhook_data)
+        if not details:
+            return {"status": "ignored", "reason": "Could not retrieve bot or message details."}
         
-        bot_config = _find_bot_in_config(webhook_data)
-        if not bot_config:
-            return {"status": "ignored", "reason": "Message not for a registered bot."}
+        bot_client, message_text, room_id = details
+        if not room_id:
+            logger.error("Could not determine room_id from webhook payload.")
+            return {"status": "error", "detail": "Missing room_id."}
 
-        bot_client = WebexBotClient(bot_token=bot_config['token'])
-        
-        message_id = webhook_data['data']['id']
-        message_details = bot_client.get_messages(id=message_id)
-        if not message_details:
-            raise Exception("Could not fetch message details.")
+        active_user_id = await _find_active_user_session("webex")
+        if not active_user_id:
+            bot_client.post_message(room_id=room_id, text="No active Webex user session found to process this request.")
+            return {"status": "error", "detail": "No active Webex session."}
 
-        message_text = message_details[0].get('text', '').strip()
-        room_id = message_details[0].get('roomId')
-
-        # To-Do: Replace this with the actual AI analysis logic
-        response_text = f"I received your message: '{message_text}'"
-        if room_id:
-            bot_client.post_message(room_id=room_id, text=response_text)
+        webex_client = get_client("webex")
+        await _process_bot_command(bot_client, webex_client, active_user_id, room_id, message_text)
 
         return {"status": "processed"}
 
