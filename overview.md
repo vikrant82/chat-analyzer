@@ -32,6 +32,8 @@
    - **Key Modules/Components:** Identify and describe the most critical files or modules that contain the core business logic. Explain their responsibility.
      - **File:** `app.py`
      - **Responsibility:** Main FastAPI application. Handles all API routing, user authentication, and orchestrates the chat analysis process. Contains the webhook handler for bot interactions.
+     - **File:** `bot_manager.py`
+     - **Responsibility:** Handles the registration, retrieval, and deletion of bot configurations.
      - **File:** `clients/factory.py`
      - **Responsibility:** Implements the factory pattern to instantiate the correct chat client (`telegram`, `webex`) based on the user's selection.
      - **File:** `clients/webex_bot_client_impl.py`

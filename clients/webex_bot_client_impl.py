@@ -1,6 +1,7 @@
 import requests
 import logging
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ class WebexBotClient:
         """
         data = {
             "roomId": room_id,
-            "text": text
+            "markdown": text
         }
         if parent_id:
             data["parentId"] = parent_id

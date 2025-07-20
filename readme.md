@@ -13,7 +13,7 @@ The application features a robust caching system to ensure fast, repeated analys
     -   Ask follow-up questions without re-submitting the initial query.
     -   The AI maintains context throughout the conversation.
 -   **AI-Powered Analysis & Bot Integration**:
-    -   **Webex Bot Support**: Register a Webex bot to invoke the analyzer directly from any Webex space.
+    -   **Webex Bot Support**: Register a Webex bot to invoke the analyzer directly from any Webex space. The bot leverages the permissions of the logged-in user to access and summarize chat history.
     -   Mention the bot (e.g., `@MyAnalyzerBot summarize last 2 days`) to get an instant summary.
     -   **Real-time Streaming**: View AI responses as they are generated, word-by-word.
     -   **Summarization**: Generate concise summaries of chat conversations for a given period.
@@ -45,6 +45,7 @@ The application features a robust caching system to ensure fast, repeated analys
 ├── sessions/               # Auto-generated: Stores login session files
 ├── static/                 # Frontend CSS, JavaScript and single-page frontend
 ├── app.py                  # Main FastAPI backend application
+├── bot_manager.py          # Handles bot configuration
 ├── WebexClient.py          # Low-level client for Webex API
 ├── config.json             # Main configuration file
 ├── requirements.txt        # Python dependencies
