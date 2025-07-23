@@ -313,7 +313,7 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
         yield f"data: {json.dumps({'type': 'status', 'message': f'Found {message_count} messages. Summarizing...'})}\n\n"
         
         try:
-            stream = await llm_client.call_conversational(
+            stream = llm_client.call_conversational(
                 req.modelName,
                 current_conversation,
                 original_messages
