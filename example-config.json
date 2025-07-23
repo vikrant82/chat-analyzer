@@ -36,6 +36,12 @@
         "token": "YOUR_WEBEX_BOT_TOKEN"
       }
     ],
-    "telegram": []
+    "telegram": [
+      {
+        "name": "My Telegram Analyzer",
+        "bot_id": "YOUR_TELEGRAM_BOT_ID",
+        "token": "YOUR_TELEGRAM_BOT_TOKEN"
+      }
+    ]
   }
 }

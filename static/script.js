@@ -227,6 +227,11 @@ function showSection(sectionName) {
             return;
         }
         botManagementTitle.textContent = `Manage Bots (${appState.activeBackend.charAt(0).toUpperCase() + appState.activeBackend.slice(1)})`;
+        // Show/hide botId field based on backend
+        const botIdRow = document.getElementById('botIdRow');
+        if (botIdRow) {
+            botIdRow.style.display = appState.activeBackend === 'webex' ? '' : 'none';
+        }
         loadBots();
     } else if (sectionName === 'loginSection') {
         if (backendSelect) {
@@ -816,13 +821,18 @@ async function handleRegisterBot() {
     const token = botTokenInput.value.trim();
     const webhook_url = webhookUrlInput.value.trim();
 
-    if (!name || !token || !bot_id) {
-        botManagementError.textContent = 'Bot Name, Bot ID, and Token are required.';
+    if (appState.activeBackend === 'webex' && (!name || !token || !bot_id)) {
+        botManagementError.textContent = 'Bot Name, Bot ID, and Token are required for Webex bots.';
+        return;
+    }
+    
+    if (appState.activeBackend === 'telegram' && (!name || !token)) {
+        botManagementError.textContent = 'Bot Name and Token are required for Telegram bots.';
         return;
     }
 
     try {
-        const payload = { name, token, bot_id };
+        const payload = { name, token, bot_id: bot_id || 'telegram_bot' }; // Provide a dummy bot_id for telegram
         if (webhook_url) {
             payload.webhook_url = webhook_url;
         }
