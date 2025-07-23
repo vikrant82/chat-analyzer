@@ -5,6 +5,7 @@
    - **User:** Who is the intended user of this application? (e.g., developers, end-consumers, business analysts)
    - **Core Functionality:** In a few bullet points, describe the main features.
      - **Webex Bot Integration**: Allows users to register a Webex bot and invoke the chat analyzer from any Webex space by mentioning the bot.
+     - **Telegram Bot Integration**: Allows users to register a Telegram bot and interact with it directly to get summaries of any chat.
 
 **2. Technology Stack**
    - **Languages:** List all programming languages used (e.g., Python, TypeScript, Java).
@@ -38,6 +39,8 @@
      - **Responsibility:** Implements the factory pattern to instantiate the correct chat client (`telegram`, `webex`) based on the user's selection.
      - **File:** `clients/webex_bot_client_impl.py`
      - **Responsibility:** A dedicated client for handling API interactions for Webex bots, using a long-lived bot token.
+     - **File:** `clients/telegram_bot_client_impl.py`
+     - **Responsibility:** A dedicated client for handling API interactions for Telegram bots, using a long-lived bot token.
      - **File:** `static/script.js`
      - **Responsibility:** Handles all frontend logic, including user authentication, chat selection, bot management, and rendering the conversational UI.
    - **Data Flow:** Describe how data moves through the system. For a web app, this might be: `User Interaction -> React Component -> State Management (Redux/Context) -> API Service Call -> Backend API Endpoint -> Database`.
@@ -52,6 +55,7 @@
      - `GET /api/{backend}/bots`: Retrieves the list of registered bots for a backend.
      - `DELETE /api/{backend}/bots/{bot_name}`: Deletes a registered bot.
      - `POST /api/bot/webex/webhook`: The public endpoint that receives webhook notifications from Webex when a bot is mentioned.
+     - `POST /api/bot/telegram/webhook/{bot_token}`: The public endpoint that receives webhook notifications from Telegram.
    - **External Services:** List any external APIs or services the application communicates with (e.g., Stripe for payments, S3 for file storage, Google Maps API).
 
 **7. Configuration & Environment**
