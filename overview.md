@@ -1,53 +1,60 @@
 ### **Project Knowledge Base: `[chat_analyzer]`**
 
 **1. High-Level Summary**
-   - **Purpose:** What is the primary goal of this project? What problem does it solve?
-   - **User:** Who is the intended user of this application? (e.g., developers, end-consumers, business analysts)
-   - **Core Functionality:** In a few bullet points, describe the main features.
+   - **Purpose:** This project provides a chat analysis service that can be invoked via Webex or Telegram bots. It summarizes chat conversations and can also act as a conversational AI.
+   - **User:** Developers and end-users who want to quickly understand the content of a chat conversation.
+   - **Core Functionality:**
      - **Webex Bot Integration**: Allows users to register a Webex bot and invoke the chat analyzer from any Webex space by mentioning the bot.
      - **Telegram Bot Integration**: Allows users to register a Telegram bot and interact with it directly to get summaries of any chat.
+     - **/aimode for Telegram Bot**: A feature that enables a conversational AI mode, allowing users to ask direct questions to the AI about the chat history.
 
 **2. Technology Stack**
-   - **Languages:** List all programming languages used (e.g., Python, TypeScript, Java).
-   - **Frameworks:** Identify major frameworks for frontend, backend, and testing (e.g., React, Node.js/Express, Django, pytest, Jest).
-   - **Key Libraries/Dependencies:** List the most critical third-party libraries and their purpose (e.g., `axios` for HTTP requests, `pandas` for data manipulation, `Mongoose` for MongoDB interaction). Reference the primary dependency file (e.g., `package.json`, `requirements.txt`).
-   - **Database:** Identify the database system used, if any (e.g., PostgreSQL, MongoDB, SQLite).
+   - **Languages:** Python
+   - **Frameworks:** FastAPI
+   - **Key Libraries/Dependencies:** See `requirements.txt`. Key libraries include `telethon` for the Telegram user client, `httpx` for the Telegram bot client, and `fastapi` for the web server.
+   - **Database:** None.
 
 **3. Directory Structure Map**
-   - Provide a high-level map of the most important directories and their roles. Do not list every file, but explain the purpose of the key folders.
-   - **Example:**
-     - `/src`: Main application source code.
-     - `/src/components`: Reusable UI components.
-     - `/src/api`: Logic for making external API calls.
-     - `/server`: Backend server code.
-     - `/tests`: All automated tests.
-     - `/scripts`: Build or utility scripts.
-     - `/public`: Static assets served to the client.
+   - `/ai`: Contains all AI-related logic, including prompts and model factories.
+   - `/clients`: Contains the client implementations for interacting with different chat platforms (Telegram, Webex).
+   - `/static`: Contains the frontend files for the web UI.
 
 **4. Execution & Entry Points**
-   - **How to Run Locally:** What command(s) are used to start the application for development? (e.g., `npm run dev`, `python main.py`).
-   - **Main Entry Files:** What are the primary entry point files for the application? (e.g., `src/index.tsx` for the frontend, `server/index.js` for the backend).
-   - **Build Process:** How is the project built for production? (e.g., `npm run build`).
+   - **How to Run Locally:** `docker-compose up`
+   - **Main Entry Files:** `app.py`
+   - **Build Process:** `docker-compose build`
 
 **5. Architecture & Core Logic**
-   - **Key Modules/Components:** Identify and describe the most critical files or modules that contain the core business logic. Explain their responsibility.
+   - **Key Modules/Components:**
      - **File:** `app.py`
-     - **Responsibility:** Main FastAPI application. Handles all API routing, user authentication, and orchestrates the chat analysis process. Contains the webhook handler for bot interactions.
+     - **Responsibility:** Main FastAPI application. Handles all API routing, user authentication, and orchestrates the chat analysis process. Contains the webhook handler for bot interactions. It also manages the state of each chat via the `chat_modes` global dictionary.
      - **File:** `bot_manager.py`
      - **Responsibility:** Handles the registration, retrieval, and deletion of bot configurations.
      - **File:** `clients/factory.py`
      - **Responsibility:** Implements the factory pattern to instantiate the correct chat client (`telegram`, `webex`) based on the user's selection.
-     - **File:** `clients/webex_bot_client_impl.py`
-     - **Responsibility:** A dedicated client for handling API interactions for Webex bots, using a long-lived bot token.
+     - **File:** `clients/telegram_client_impl.py`
+     - **Responsibility:** Implements the **user client** for Telegram using Telethon. This client is responsible for reading chat history and requires a `.session` file for stateful authentication.
      - **File:** `clients/telegram_bot_client_impl.py`
-     - **Responsibility:** A dedicated client for handling API interactions for Telegram bots, using a long-lived bot token.
-     - **File:** `static/script.js`
-     - **Responsibility:** Handles all frontend logic, including user authentication, chat selection, bot management, and rendering the conversational UI.
-   - **Data Flow:** Describe how data moves through the system. For a web app, this might be: `User Interaction -> React Component -> State Management (Redux/Context) -> API Service Call -> Backend API Endpoint -> Database`.
-   - **State Management:** If applicable, describe the state management strategy (e.g., Redux, Zustand, React Context, Vuex).
+     - **Responsibility:** Implements the stateless **bot client** for Telegram using `httpx` and the Bot API. This client is used for sending messages back to the user.
+     - **File:** `ai/prompts.py`
+     - **Responsibility:** Contains the system prompts used by the AI. This includes the `UNIFIED_SYSTEM_PROMPT` for summarization and the `GENERAL_AI_SYSTEM_PROMPT` for the conversational AI mode.
+   - **Telegram Bot Architecture:**
+     - The system uses a dual-client architecture for the Telegram bot:
+       - **User Client (Telethon):** A stateful client used for reading chat history. It authenticates using a `.session` file.
+       - **Bot Client (httpx):** A stateless client that uses the Telegram Bot API to send messages.
+   - **Stateful Bot Logic:**
+     - The `chat_modes` global dictionary in `app.py` tracks the current mode (`summarizer` or `aimode`) for each chat, allowing the bot to maintain state across interactions.
+   - **/aimode Feature:**
+     - The `_process_telegram_bot_command` function in `app.py` acts as a dispatcher.
+     - It handles the `/aimode` command, toggling the chat's mode in the `chat_modes` dictionary.
+     - Based on the current mode, it delegates to either `_handle_summarizer_mode` or `_handle_ai_mode`.
+   - **Dynamic Prompts:**
+     - The `call_conversational` method in the AI logic dynamically selects a system prompt.
+     - If the `original_messages` parameter is provided, it uses the `UNIFIED_SYSTEM_PROMPT` for summarization.
+     - Otherwise, it uses the `GENERAL_AI_SYSTEM_PROMPT` for conversational AI.
 
 **6. API & External Interactions**
-   - **Internal APIs:** If the project has a backend, list the main API endpoints defined and what they do.
+   - **Internal APIs:**
      - `POST /api/login`: Initiates the login process for a given backend (Telegram or Webex).
      - `GET /api/chats`: Fetches the list of available chats for the authenticated user.
      - `POST /api/chat`: The main endpoint for performing AI analysis on a selected chat.
@@ -56,16 +63,19 @@
      - `DELETE /api/{backend}/bots/{bot_name}`: Deletes a registered bot.
      - `POST /api/bot/webex/webhook`: The public endpoint that receives webhook notifications from Webex when a bot is mentioned.
      - `POST /api/bot/telegram/webhook/{bot_token}`: The public endpoint that receives webhook notifications from Telegram.
-   - **External Services:** List any external APIs or services the application communicates with (e.g., Stripe for payments, S3 for file storage, Google Maps API).
+   - **External Services:**
+     - Telegram API
+     - Webex API
+     - Google AI API (or any other configured LLM)
 
 **7. Configuration & Environment**
-   - **Configuration Files:** Where is the project configuration stored? (e.g., `.env`, `config.json`, `settings.py`).
-   - **Environment Variables:** List the key environment variables required to run the application and a brief description of each (e.g., `DATABASE_URL`, `API_KEY`). Do not include actual secret values.
+   - **Configuration Files:** `config.json`
+   - **Environment Variables:** See `config.json` for a list of required variables.
 
 **8. Testing**
-   - **Testing Frameworks:** What frameworks are used for testing? (e.g., Jest, pytest, Cypress).
-   - **Test Location:** Where are the tests located? (e.g., `__tests__` directories, `tests/` folder).
-   - **How to Run Tests:** What command is used to execute the test suite? (e.g., `npm test`).
+   - **Testing Frameworks:** Not yet implemented.
+   - **Test Location:** Not yet implemented.
+   - **How to Run Tests:** Not yet implemented.
 
 **9. Missing Information & Inferences**
-   - Explicitly state any critical information that appears to be missing (e.g., "No clear deployment script found," "Testing strategy is not defined," "Error handling seems inconsistent").
+   - The project lacks a formal testing suite.

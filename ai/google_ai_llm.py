@@ -6,7 +6,7 @@ import google.generativeai as genai
 from google.generativeai.types import generation_types
 
 from .base_llm import LLMClient
-from .prompts import UNIFIED_SYSTEM_PROMPT
+from .prompts import UNIFIED_SYSTEM_PROMPT, GENERAL_AI_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -57,32 +57,33 @@ class GoogleAILLM(LLMClient):
 
         logger.info(f"Streaming conversational response from Google AI ({model_name})...")
         try:
-            full_model_name = f"models/{model_name}"
-            model = genai.GenerativeModel(full_model_name)
-            generation_config = genai.types.GenerationConfig(temperature=0.7, top_p=0.9, top_k=40)
-            safety_settings = {}
-
-            # The first message is now the system prompt, subsequent are the conversation
-            system_prompt = UNIFIED_SYSTEM_PROMPT.format(text_to_summarize=original_messages)
-            
-            history = []
-            # Add all but the last message to history
-            if len(conversation) > 1:
-                for msg in conversation[:-1]:
-                    history.append({'role': msg['role'], 'parts': [{'text': msg['content']}]})
-
-            # The last message is the one we want the model to respond to
-            last_message = conversation[-1]['content'] if conversation else ""
-            
-            # Prepend the system prompt to the last message for context
-            full_prompt = f"{system_prompt}\n\n{last_message}"
-
-            model_with_history = model.start_chat(history=history)
-
-            response_stream = await model_with_history.send_message_async(
-                full_prompt,
-                stream=True
-            )
+            if original_messages:
+                # Summarizer Mode
+                system_prompt = UNIFIED_SYSTEM_PROMPT.format(text_to_summarize=original_messages)
+                user_query = conversation[-1]['content'] if conversation else ""
+                full_prompt = f"{system_prompt}\n\n{user_query}"
+                
+                model = genai.GenerativeModel(f"models/{model_name}")
+                response_stream = await model.generate_content_async(full_prompt, stream=True)
+            else:
+                # AI Mode
+                model = genai.GenerativeModel(
+                    f"models/{model_name}",
+                    system_instruction=GENERAL_AI_SYSTEM_PROMPT
+                )
+                
+                history = []
+                for msg in conversation:
+                    role = "model" if msg["role"] == "assistant" else msg["role"]
+                    history.append({'role': role, 'parts': [{'text': msg['content']}]})
+                
+                last_message_parts = history.pop()['parts'] if history else []
+                
+                model_with_history = model.start_chat(history=history)
+                response_stream = await model_with_history.send_message_async(
+                    last_message_parts,
+                    stream=True
+                )
 
             async for chunk in response_stream:
                 try:

@@ -5,7 +5,7 @@ from typing import List, Dict, Any, AsyncGenerator, Optional
 import httpx
 
 from .base_llm import LLMClient
-from .prompts import UNIFIED_SYSTEM_PROMPT
+from .prompts import UNIFIED_SYSTEM_PROMPT, GENERAL_AI_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -78,13 +78,14 @@ class OpenAICompatibleLLM(LLMClient):
         chat_completions_url = self.url
         logger.info(f"Streaming conversational response from OpenAI-compatible endpoint ({model_name})...")
 
-        system_prompt = UNIFIED_SYSTEM_PROMPT.format(text_to_summarize=original_messages)
-        
-        # If the conversation is empty, it's the first turn (the summary)
-        if not conversation:
-             messages = [{"role": "system", "content": system_prompt}]
+        if original_messages:
+            # Summarizer mode
+            system_prompt = UNIFIED_SYSTEM_PROMPT.format(text_to_summarize=original_messages)
+            messages = [{"role": "system", "content": system_prompt}] + conversation
         else:
-             messages = [{"role": "system", "content": system_prompt}] + conversation
+            # AI mode
+            system_prompt = GENERAL_AI_SYSTEM_PROMPT
+            messages = [{"role": "system", "content": system_prompt}] + conversation
 
         headers = {"Content-Type": "application/json"}
         if self.api_key:
