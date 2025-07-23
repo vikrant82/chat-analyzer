@@ -193,7 +193,7 @@ class TelegramClientImpl(ChatClient):
 
                 logger.info(f"Fetching messages with offset_date={fetch_end.isoformat()} and reverse=False")
                 async for message in client.iter_messages(target_entity, limit=200, offset_date=fetch_end, reverse=False):
-                    logger.info(f"Processing message {message.id} from {message.date.isoformat()}")
+                    #logger.info(f"Processing message {message.id} from {message.date.isoformat()}")
                     
                     msg_date_utc = message.date.replace(tzinfo=timezone.utc)
 
@@ -205,13 +205,13 @@ class TelegramClientImpl(ChatClient):
                     #     logger.info(f"Message {message.id} is newer than fetch_end date {fetch_end.isoformat()}, skipping.")
                     #     continue
                     
-                    logger.info(f"Full message object: {message.to_json()}")
+                    #logger.info(f"Full message object: {message.to_json()}")
     
                     if not message.text:
                         logger.info(f"Message {message.id} does not have text, skipping.")
                         continue
     
-                    logger.info(f"Message {message.id} has text: '{message.text[:50]}...'")
+                    #logger.info(f"Message {message.id} has text: '{message.text[:50]}...'")
                     sender = await message.get_sender()
                     author_name, author_id = "Unknown", "0"
                     if isinstance(sender, TelethonUser):
