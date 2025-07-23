@@ -14,6 +14,7 @@ The application features a robust caching system to ensure fast, repeated analys
     -   The AI maintains context throughout the conversation.
 -   **AI-Powered Analysis & Bot Integration**:
     -   **Webex Bot Support**: Register a Webex bot to invoke the analyzer directly from any Webex space. The bot leverages the permissions of the logged-in user to access and summarize chat history.
+    -   **Telegram Bot Support**: Register a Telegram bot and interact with it directly to get summaries of any chat your user account is in.
     -   Mention the bot (e.g., `@MyAnalyzerBot summarize last 2 days`) to get an instant summary.
     -   **Real-time Streaming**: View AI responses as they are generated, word-by-word.
     -   **Summarization**: Generate concise summaries of chat conversations for a given period.
@@ -195,11 +196,22 @@ You may want to build a local image with changes or if unable to access docker h
 1.  Go to the [Webex App Hub for Developers](https://developer.webex.com/my-apps) and create a new Bot.
 2.  Give your bot a name and icon.
 3.  Copy the **Bot access token**. This is the token you will use to register the bot in the Chat Analyzer.
+### Configure a Webex Bot (Optional)
+1.  Go to the [Webex App Hub for Developers](https://developer.webex.com/my-apps) and create a new Bot.
+2.  Give your bot a name and icon.
+3.  Copy the **Bot access token**. This is the token you will use to register the bot in the Chat Analyzer.
 4.  To find your bot's **Person ID**, use the following `curl` command in your terminal, replacing `YOUR_BOT_ACCESS_TOKEN` with the token you just copied:
     ```bash
     curl --request GET --header "Authorization: Bearer YOUR_BOT_ACCESS_TOKEN" https://webexapis.com/v1/people/me
     ```
 5.  The `id` field in the JSON response is your bot's Person ID.
+
+### Configure a Telegram Bot (Optional)
+1.  Talk to the **BotFather** on Telegram.
+2.  Create a new bot by sending the `/newbot` command.
+3.  Follow the instructions to give your bot a name and username.
+4.  BotFather will give you a **token** to access the HTTP API. This is the token you will use to register the bot in the Chat Analyzer.
+5.  You do not need a "Bot ID" for Telegram bots, you can enter any dummy value.
 
 ### Create `config.json` File
 
@@ -235,7 +247,13 @@ In the root of the project, create a `config.json` file and populate it with you
         "token": "YOUR_BOTS_ACCESS_TOKEN"
       }
     ],
-    "telegram": []
+    "telegram": [
+      {
+        "name": "My Telegram Analyzer",
+        "bot_id": "dummy_id",
+        "token": "YOUR_TELEGRAM_BOT_TOKEN"
+      }
+    ]
   }
 }
 ```
@@ -278,6 +296,15 @@ Once logged in, you will be on the "Analyze Chats" screen.
 4.  Copy the public HTTPS URL provided by ngrok (e.g., `https://abcdef123.ngrok.io`).
 5.  In the "Manage Bots" UI, provide this public URL in the "Public Webhook URL" field during registration. This will allow the application to automatically create the necessary webhook in Webex.
 6.  Once registered, go to any Webex space your bot has been added to and type `@YourBotName summarize last 2 days`. The bot will respond in the space.
+
+### Using the Telegram Bot
+
+1.  After logging into the application, click the **"Manage Bots"** button.
+2.  Register your Telegram bot using the name and Access Token you retrieved from BotFather.
+3.  **Crucially**, if you are running the application locally, you must expose it to the internet using a tool like **ngrok**. Start ngrok with the command `ngrok http 8000`.
+4.  Copy the public HTTPS URL provided by ngrok (e.g., `https://abcdef123.ngrok.io`).
+5.  In the "Manage Bots" UI, provide this public URL in the "Public Webhook URL" field during registration. This will allow the application to automatically set the necessary webhook with Telegram.
+6.  Once registered, you can send a message to your bot in any chat it is a part of. For example: `summarize last 2 days`.
 
 ### Switching Services
 
