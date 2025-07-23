@@ -673,7 +673,7 @@ async def _handle_summarizer_mode(bot_client: Any, telegram_client: Any, active_
         stream = llm_client.call_conversational(model_name, conversation_history, formatted_messages)
 
         ai_response = ""
-        async for chunk in stream:
+        async for chunk in await stream:
             ai_response += chunk
         
         await bot_client.send_message(user_chat_id, ai_response)
