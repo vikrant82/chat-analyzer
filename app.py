@@ -23,6 +23,7 @@ from io import BytesIO
 from clients.factory import get_client
 from clients.bot_factory import get_bot_client
 from clients.base_client import Message as StandardMessage
+from clients.telegram_bot_client_impl import TelegramBotClient
 from ai.factory import get_all_llm_clients
 from bot_manager import BotManager
 
@@ -72,6 +73,7 @@ class ChatMessage(BaseModel):
     message: Optional[str] = None # Can be empty on first call
     chatId: str
     modelName: str
+    provider: str
     startDate: str
     endDate: str
     enableCaching: bool
@@ -213,23 +215,22 @@ async def unified_login(req: Request, backend: str = Query(...)):
 
 @router_api.get("/models")
 async def get_models():
-    all_models = {}
-    default_models = {}
-    
+    all_models = []
+    default_model_info = {}
+
     for provider, client in llm_clients.items():
         models = client.get_available_models()
-        all_models[f"{provider}_models"] = models
+        for model_name in models:
+            all_models.append({"provider": provider, "model": model_name})
         
         default_model = client.get_default_model()
         if default_model and default_model in models:
-            default_models[provider] = default_model
-        else:
-            default_models[provider] = None
+            default_model_info = {"provider": provider, "model": default_model}
 
-    if not any(all_models.values()):
+    if not all_models:
         raise HTTPException(status_code=500, detail="No AI models configured or loaded successfully.")
 
-    return {**all_models, "default_models": default_models}
+    return {"models": all_models, "default_model_info": default_model_info}
 
 @router_api.get("/session-status")
 async def get_session_status(user_id: str = Depends(get_current_user_id), backend: str = Query(...)):
@@ -272,14 +273,13 @@ class LogoutRequest(BaseModel):
 
 @router_api.post("/chat")
 async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), backend: str = Query(...)):
-    llm_client = None
-    for provider, client in llm_clients.items():
-        if req.modelName in client.get_available_models():
-            llm_client = client
-            break
-    
+    llm_client = llm_clients.get(req.provider)
+
     if not llm_client:
-        raise HTTPException(status_code=400, detail=f"Selected model '{req.modelName}' is not available.")
+        raise HTTPException(status_code=400, detail=f"Invalid provider '{req.provider}' specified.")
+
+    if req.modelName not in llm_client.get_available_models():
+        raise HTTPException(status_code=400, detail=f"Model '{req.modelName}' is not available for provider '{req.provider}'.")
 
     token = next((t for t, data in session_tokens.items() if data.get("user_id") == user_id), None)
     if not token:
@@ -312,7 +312,7 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
         yield f"data: {json.dumps({'type': 'status', 'message': f'Found {message_count} messages. Summarizing...'})}\n\n"
         
         try:
-            stream = llm_client.call_conversational(
+            stream = await llm_client.call_conversational(
                 req.modelName,
                 current_conversation,
                 original_messages
@@ -585,7 +585,7 @@ async def _process_bot_command(bot_client: Any, webex_client: Any, active_user_i
         error_message = "I encountered an error trying to process your request. Please check the server logs."
         bot_client.post_message(room_id=room_id, text=error_message)
 
-async def _process_telegram_bot_command(bot_client: Any, telegram_client: Any, active_user_id: str, chat_id: int, message_text: str):
+async def _process_telegram_bot_command(bot_client: Any, telegram_client: Any, active_user_id: str, user_chat_id: int, bot_id: int, message_text: str):
     import re
     days_match = re.search(r"last (\d+) days", message_text, re.IGNORECASE)
     
@@ -595,21 +595,26 @@ async def _process_telegram_bot_command(bot_client: Any, telegram_client: Any, a
         start_date = end_date - timedelta(days=num_days)
         query = re.sub(r"\s*last \d+ days\s*", "", message_text, flags=re.IGNORECASE).strip()
     else:
-        start_date = end_date - timedelta(days=1)
+        start_date = end_date - timedelta(days=5)
         query = message_text
 
     if not query:
         query = "Provide a concise summary of the conversation."
 
-    logger.info(f"Bot using user '{active_user_id}' to fetch history for chat {chat_id}")
+    logger.info(f"Bot {bot_id} using user '{active_user_id}' to fetch history for chat with user {user_chat_id}")
     
     try:
-        messages_list = await bot_client.get_chat_history(
-            telegram_client, chat_id, num_days if days_match else 1
+        # The chat with the bot is identified by the bot's own ID from the user's perspective
+        messages_list = await telegram_client.get_messages(
+            active_user_id,
+            str(bot_id),
+            start_date.strftime('%Y-%m-%d'),
+            end_date.strftime('%Y-%m-%d'),
+            enable_caching=False
         )
         
         if not messages_list:
-            await bot_client.send_message(chat_id, "No messages found in the specified date range.")
+            await bot_client.send_message(user_chat_id, "No messages found in the specified date range.")
             return
 
         formatted_messages = "\n\n".join(f"[{msg.author.name} at {msg.timestamp}]: {msg.text}" for msg in messages_list)
@@ -627,12 +632,12 @@ async def _process_telegram_bot_command(bot_client: Any, telegram_client: Any, a
         async for chunk in stream:
             ai_response += chunk
         
-        await bot_client.send_message(chat_id, ai_response)
+        await bot_client.send_message(user_chat_id, ai_response)
 
     except Exception as e:
         logger.error(f"Bot failed to process message: {e}", exc_info=True)
         error_message = "I encountered an error trying to process your request. Please check the server logs."
-        await bot_client.send_message(chat_id, error_message)
+        await bot_client.send_message(user_chat_id, error_message)
 
 @router_bot.post("/webex/webhook")
 async def webex_webhook(req: Request):
@@ -698,8 +703,37 @@ async def telegram_webhook(bot_token: str, req: Request):
 
         telegram_client = get_client("telegram")
         bot_client = get_bot_client("telegram", bot_token)
+        
+        bot_info = await bot_client.get_me()
+        bot_id = bot_info.get("id")
 
-        await _process_telegram_bot_command(bot_client, telegram_client, active_user_id, chat_id, message_text)
+        if not bot_id:
+            logger.error(f"Could not determine bot_id for token {bot_token}")
+            # Optionally, send a message back to the user
+            await bot_client.send_message(chat_id, "There was an internal error identifying the bot. Please contact an administrator.")
+            return {"status": "error", "detail": "Could not identify bot."}
+
+        # In group chats, only respond if mentioned or replied to.
+        chat_type = message.get('chat', {}).get('type')
+        if chat_type in ['group', 'supergroup']:
+            bot_username = bot_info.get("username")
+            is_mentioned = bot_username and f"@{bot_username}" in message_text
+            is_reply = 'reply_to_message' in message
+
+            if not is_mentioned and not is_reply:
+                logger.info(f"Ignoring message in group {chat_id} because bot was not mentioned or replied to.")
+                return {"status": "ignored", "reason": "Bot not addressed in group"}
+
+        # We need to pass the specific TelegramBotClient to the processing function
+        # as it has methods not on the unified client, like send_message.
+        # A better long-term fix is to unify all required methods.
+        if hasattr(bot_client, '_client') and isinstance(bot_client._client, TelegramBotClient):
+            specific_bot_client = bot_client._client
+        else:
+            # Fallback or error if the structure is not as expected
+            raise Exception("Could not retrieve specific TelegramBotClient from UnifiedBotClient")
+
+        await _process_telegram_bot_command(specific_bot_client, telegram_client, active_user_id, chat_id, bot_id, message_text)
 
         return {"status": "processed"}
 

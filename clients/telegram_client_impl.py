@@ -43,8 +43,10 @@ def get_session_file(phone: str) -> str:
 
 @asynccontextmanager
 async def telegram_api_client(phone: str, check_authorized: bool = True) -> AsyncGenerator[TelegramClient, None]:
+    if not API_ID or not API_HASH:
+        raise ValueError("Telegram API_ID and API_HASH must be configured in config.json")
     session_path = get_session_path(phone)
-    client = TelegramClient(session_path, API_ID, API_HASH)
+    client = TelegramClient(session_path, int(API_ID), API_HASH)
     try:
         await client.connect()
         if check_authorized and not await client.is_user_authorized():
@@ -52,7 +54,7 @@ async def telegram_api_client(phone: str, check_authorized: bool = True) -> Asyn
         yield client
     finally:
         if client.is_connected():
-            await client.disconnect()
+            client.disconnect()
 
 class TelegramClientImpl(ChatClient):
 
@@ -84,12 +86,21 @@ class TelegramClientImpl(ChatClient):
         phone = auth_details.get('phone')
         code = auth_details.get('code')
         password = auth_details.get('password')
+        if not phone:
+            raise ValueError("Missing phone for verification.")
         login_attempt = active_login_attempts.get(phone)
-        if not all([phone, code, login_attempt]):
-            raise ValueError("Missing phone, code, or login attempt for verification.")
+        if not login_attempt:
+            raise ValueError("No active login attempt found for this phone number.")
+        if not code:
+            raise ValueError("Missing code for verification.")
+
+        phone_code_hash = login_attempt.get('phone_code_hash')
+        if not phone_code_hash:
+            raise ValueError("phone_code_hash not found in login attempt.")
+
         async with telegram_api_client(phone, check_authorized=False) as client:
             try:
-                await client.sign_in(phone=phone, code=code, phone_code_hash=login_attempt['phone_code_hash'])
+                await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
             except SessionPasswordNeededError:
                 if not password:
                     return {"status": "password_required"}
@@ -168,58 +179,75 @@ class TelegramClientImpl(ChatClient):
                     chat_id_input = chat_id
                     if isinstance(chat_id_input, str) and chat_id_input.lstrip('-').isdigit():
                         chat_id_input = int(chat_id_input)
-                    target_entity = await client.get_entity(chat_id_input)
+                    
+                    from telethon.tl.types import PeerUser
+                    
+                    chat_id_int = int(chat_id_input)
+                    target_entity = await client.get_entity(PeerUser(chat_id_int))
+                    if isinstance(target_entity, list):
+                        target_entity = target_entity[0]
+
                 except Exception as e:
                     logger.error(f"Error resolving entity '{chat_id}': {e}", exc_info=True)
                     return []
 
-                async for message in client.iter_messages(target_entity, limit=None):
-                    if message.date.replace(tzinfo=timezone.utc) > fetch_end:
-                        continue
-                    if message.date.replace(tzinfo=timezone.utc) < fetch_start:
-                        break
-                    if message.text:
-                        sender = await message.get_sender()
-                        author_name, author_id = "Unknown", "0"
-                        if isinstance(sender, TelethonUser):
-                            author_name = sender.first_name or sender.username or f"User {sender.id}"
-                            author_id = str(sender.id)
-                        elif isinstance(sender, TelethonChannel):
-                            author_name = sender.title
-                            author_id = str(sender.id)
-                        
-                        newly_fetched_messages.append(Message(
-                            id=str(message.id),
-                            text=message.text,
-                            author=User(id=author_id, name=author_name),
-                            timestamp=message.date.isoformat(),
-                        ))
-            
-            # --- THIS IS THE CORRECTED CACHING LOGIC ---
-            
-            # 1. Group the fetched messages by day
-            grouped_by_day = {}
-            for msg in newly_fetched_messages:
-                msg_day = datetime.fromisoformat(msg.timestamp).replace(hour=0, minute=0, second=0, microsecond=0)
-                if msg_day not in grouped_by_day:
-                    grouped_by_day[msg_day] = []
-                grouped_by_day[msg_day].append(msg)
-            
-            # 2. Iterate through ALL days we intended to fetch
-            for day_to_cache in dates_to_fetch_from_api:
-                # Get messages for this day, or an empty list if none were found
-                messages_for_this_day = grouped_by_day.get(day_to_cache, [])
-                
-                # Add them to the main list for the final result
-                all_messages.extend(messages_for_this_day)
-                
-                # If the day is before today, we cache the result, even if it's empty
-                if day_to_cache < today_dt and enable_caching:
-                    cache_path = self._get_cache_path(user_identifier, chat_id, day_to_cache)
-                    with open(cache_path, 'w') as f:
-                        logger.info(f"Caching {len(messages_for_this_day)} messages for {day_to_cache.date()} at {cache_path}")
-                        json.dump([msg.model_dump() for msg in messages_for_this_day], f)
+                logger.info(f"Fetching messages with offset_date={fetch_end.isoformat()} and reverse=False")
+                async for message in client.iter_messages(target_entity, limit=200, offset_date=fetch_end, reverse=False):
+                    logger.info(f"Processing message {message.id} from {message.date.isoformat()}")
+                    
+                    msg_date_utc = message.date.replace(tzinfo=timezone.utc)
 
+                    if msg_date_utc < fetch_start:
+                        logger.info(f"Message {message.id} is older than fetch_start date {fetch_start.isoformat()}, stopping.")
+                        break
+                    
+                    # if msg_date_utc > fetch_end:
+                    #     logger.info(f"Message {message.id} is newer than fetch_end date {fetch_end.isoformat()}, skipping.")
+                    #     continue
+                    
+                    logger.info(f"Full message object: {message.to_json()}")
+    
+                    if not message.text:
+                        logger.info(f"Message {message.id} does not have text, skipping.")
+                        continue
+    
+                    logger.info(f"Message {message.id} has text: '{message.text[:50]}...'")
+                    sender = await message.get_sender()
+                    author_name, author_id = "Unknown", "0"
+                    if isinstance(sender, TelethonUser):
+                        author_name = sender.first_name or sender.username or f"User {sender.id}"
+                        author_id = str(sender.id)
+                    elif isinstance(sender, TelethonChannel):
+                        author_name = sender.title
+                        author_id = str(sender.id)
+                    
+                    newly_fetched_messages.append(Message(
+                        id=str(message.id),
+                        text=message.text,
+                        author=User(id=author_id, name=author_name),
+                        timestamp=message.date.isoformat(),
+                    ))
+            
+            all_messages.extend(newly_fetched_messages)
+
+            # Simplified caching logic when not disabled
+            if enable_caching:
+                grouped_by_day = {}
+                for msg in newly_fetched_messages:
+                    msg_day = datetime.fromisoformat(msg.timestamp).replace(hour=0, minute=0, second=0, microsecond=0)
+                    if msg_day not in grouped_by_day:
+                        grouped_by_day[msg_day] = []
+                    grouped_by_day[msg_day].append(msg)
+
+                for day_to_cache in dates_to_fetch_from_api:
+                    if day_to_cache < today_dt:
+                        messages_for_this_day = grouped_by_day.get(day_to_cache, [])
+                        cache_path = self._get_cache_path(user_identifier, chat_id, day_to_cache)
+                        with open(cache_path, 'w') as f:
+                            logger.info(f"Caching {len(messages_for_this_day)} messages for {day_to_cache.date()} at {cache_path}")
+                            json.dump([msg.model_dump() for msg in messages_for_this_day], f)
+        
+        logger.info(f"Returning {len(all_messages)} messages from get_messages.")
         return sorted(all_messages, key=lambda m: m.timestamp)
 
     async def is_session_valid(self, user_identifier: str) -> bool:
