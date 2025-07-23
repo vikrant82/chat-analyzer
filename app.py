@@ -21,9 +21,9 @@ from io import BytesIO
 
 # Local imports from our new structure
 from clients.factory import get_client
+from clients.bot_factory import get_bot_client
 from clients.base_client import Message as StandardMessage
 from ai.factory import get_all_llm_clients
-from clients.webex_bot_client_impl import WebexBotClient
 from bot_manager import BotManager
 
 # --- Basic Setup & Logging ---
@@ -413,10 +413,10 @@ async def register_webex_bot(req: BotRegistrationRequest, user_id: str = Depends
     try:
         bot_manager.register_bot("webex", req.name, req.token, req.bot_id)
         if req.webhook_url:
-            bot_client = WebexBotClient(bot_token=req.token)
+            bot_client = get_bot_client("webex", req.token)
             webhook_name = f"Chat Analyzer - {req.name}"
             target_url = f"{req.webhook_url.rstrip('/')}/api/bot/webex/webhook"
-            bot_client.create_webhook(
+            await bot_client.create_webhook(
                 webhook_name=webhook_name,
                 target_url=target_url,
                 resource="messages",
@@ -448,6 +448,11 @@ async def delete_webex_bot(bot_name: str, user_id: str = Depends(get_current_use
 async def register_telegram_bot(req: BotRegistrationRequest, user_id: str = Depends(get_current_user_id)):
     try:
         bot_manager.register_bot("telegram", req.name, req.token, req.bot_id)
+        if req.webhook_url:
+            bot_client = get_bot_client("telegram", req.token)
+            target_url = f"{req.webhook_url.rstrip('/')}/api/bot/telegram/webhook/{req.token}"
+            await bot_client.set_webhook(target_url)
+            return {"status": "success", "message": f"Bot '{req.name}' registered and webhook set."}
         return {"status": "success", "message": f"Bot '{req.name}' registered for telegram."}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -507,14 +512,14 @@ def _find_bot_in_config(webhook_data: Dict[str, Any]) -> Optional[Dict[str, Any]
     logger.info("Webhook received, but no matching registered bot was found.")
     return None
 
-async def _get_bot_and_message_details(webhook_data: Dict[str, Any]) -> Optional[Tuple[WebexBotClient, str, Optional[str]]]:
+async def _get_bot_and_message_details(webhook_data: Dict[str, Any]) -> Optional[Tuple[Any, str, Optional[str]]]:
     bot_config = _find_bot_in_config(webhook_data)
     if not bot_config:
         return None
 
-    bot_client = WebexBotClient(bot_token=bot_config['token'])
+    bot_client = get_bot_client("webex", bot_config['token'])
     message_id = webhook_data['data']['id']
-    message_details = bot_client.get_messages(id=message_id)
+    message_details = await bot_client.get_messages(id=message_id)
     if not message_details:
         return None
 
@@ -531,7 +536,7 @@ async def _find_active_user_session(backend: str) -> Optional[str]:
                 return user_id_to_check
     return None
 
-async def _process_bot_command(bot_client: WebexBotClient, webex_client: Any, active_user_id: str, room_id: str, message_text: str):
+async def _process_bot_command(bot_client: Any, webex_client: Any, active_user_id: str, room_id: str, message_text: str):
     import re
     days_match = re.search(r"last (\d+) days", message_text, re.IGNORECASE)
     
@@ -580,6 +585,55 @@ async def _process_bot_command(bot_client: WebexBotClient, webex_client: Any, ac
         error_message = "I encountered an error trying to process your request. Please check the server logs."
         bot_client.post_message(room_id=room_id, text=error_message)
 
+async def _process_telegram_bot_command(bot_client: Any, telegram_client: Any, active_user_id: str, chat_id: int, message_text: str):
+    import re
+    days_match = re.search(r"last (\d+) days", message_text, re.IGNORECASE)
+    
+    end_date = datetime.now(timezone.utc)
+    if days_match:
+        num_days = int(days_match.group(1))
+        start_date = end_date - timedelta(days=num_days)
+        query = re.sub(r"\s*last \d+ days\s*", "", message_text, flags=re.IGNORECASE).strip()
+    else:
+        start_date = end_date - timedelta(days=1)
+        query = message_text
+
+    if not query:
+        query = "Provide a concise summary of the conversation."
+
+    logger.info(f"Bot using user '{active_user_id}' to fetch history for chat {chat_id}")
+    
+    try:
+        messages_list = await bot_client.get_chat_history(
+            telegram_client, chat_id, num_days if days_match else 1
+        )
+        
+        if not messages_list:
+            await bot_client.send_message(chat_id, "No messages found in the specified date range.")
+            return
+
+        formatted_messages = "\n\n".join(f"[{msg.author.name} at {msg.timestamp}]: {msg.text}" for msg in messages_list)
+
+        llm_provider = next(iter(llm_clients))
+        llm_client = llm_clients[llm_provider]
+        model_name = llm_client.get_default_model()
+        if not model_name:
+            raise Exception("No default AI model configured for the bot.")
+
+        conversation_history = [{"role": "user", "content": query}]
+        stream = llm_client.call_conversational(model_name, conversation_history, formatted_messages)
+
+        ai_response = ""
+        async for chunk in stream:
+            ai_response += chunk
+        
+        await bot_client.send_message(chat_id, ai_response)
+
+    except Exception as e:
+        logger.error(f"Bot failed to process message: {e}", exc_info=True)
+        error_message = "I encountered an error trying to process your request. Please check the server logs."
+        await bot_client.send_message(chat_id, error_message)
+
 @router_bot.post("/webex/webhook")
 async def webex_webhook(req: Request):
     try:
@@ -610,6 +664,47 @@ async def webex_webhook(req: Request):
 
     except Exception as e:
         logger.error(f"Error processing Webex webhook: {e}", exc_info=True)
+        return {"status": "error", "detail": str(e)}
+
+@router_bot.post("/telegram/webhook/{bot_token}")
+async def telegram_webhook(bot_token: str, req: Request):
+    try:
+        bot_config = bot_manager.get_bot_by_token("telegram", bot_token)
+        if not bot_config:
+            logger.error(f"Received webhook for unknown bot token: {bot_token}")
+            raise HTTPException(status_code=404, detail="Bot not found")
+
+        webhook_data = await req.json()
+        logger.info(f"Received Telegram webhook for bot {bot_config['name']}: {webhook_data}")
+
+        message = webhook_data.get('message')
+        if not message:
+            logger.info("Telegram webhook received without a message object.")
+            return {"status": "ignored", "reason": "Not a message event."}
+
+        chat_id = message.get('chat', {}).get('id')
+        message_text = message.get('text', '').strip()
+
+        if not chat_id or not message_text:
+            logger.info("Telegram webhook message is missing chat_id or text.")
+            return {"status": "ignored", "reason": "Missing chat_id or text."}
+
+        active_user_id = await _find_active_user_session("telegram")
+        if not active_user_id:
+            # Need a bot client to respond, even if there's no user session
+            temp_bot_client = get_bot_client("telegram", bot_token)
+            await temp_bot_client.send_message(chat_id, "No active Telegram user session found to process this request.")
+            return {"status": "error", "detail": "No active Telegram session."}
+
+        telegram_client = get_client("telegram")
+        bot_client = get_bot_client("telegram", bot_token)
+
+        await _process_telegram_bot_command(bot_client, telegram_client, active_user_id, chat_id, message_text)
+
+        return {"status": "processed"}
+
+    except Exception as e:
+        logger.error(f"Error processing Telegram webhook: {e}", exc_info=True)
         return {"status": "error", "detail": str(e)}
 
 # ===================================================================

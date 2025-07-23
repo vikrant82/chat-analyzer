@@ -43,6 +43,10 @@ class BotManager:
         bots = self.config.get('bots', {}).get(backend, [])
         return [{"name": bot["name"]} for bot in bots]
 
+    def get_bot_by_token(self, backend: str, token: str) -> Optional[Dict[str, str]]:
+        bots = self.config.get('bots', {}).get(backend, [])
+        return next((bot for bot in bots if bot.get('token') == token), None)
+
     def delete_bot(self, backend: str, name: str) -> None:
         bots = self.config.get('bots', {}).get(backend, [])
         bot_to_remove = next((bot for bot in bots if bot['name'] == name), None)
