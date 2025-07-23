@@ -43,6 +43,7 @@ llm_clients = {}
 config = {}
 conversations: Dict[str, List[Dict[str, str]]] = {}
 message_cache: Dict[str, str] = {}
+chat_modes: Dict[int, str] = {} # Tracks the mode for each chat_id
 session_tokens: Dict[str, Dict[str, str]] = {}
 SESSIONS_FILE = "sessions/app_sessions.json"
 bot_manager = BotManager()
@@ -585,7 +586,51 @@ async def _process_bot_command(bot_client: Any, webex_client: Any, active_user_i
         error_message = "I encountered an error trying to process your request. Please check the server logs."
         bot_client.post_message(room_id=room_id, text=error_message)
 
-async def _process_telegram_bot_command(bot_client: Any, telegram_client: Any, active_user_id: str, user_chat_id: int, bot_id: int, message_text: str):
+async def _handle_ai_mode(bot_client: Any, user_chat_id: int, message_text: str):
+    """Handles direct interaction with the AI in a conversational manner."""
+    try:
+        conversation_key = f"telegram_bot_{user_chat_id}"
+        
+        # Retrieve or initialize the conversation history
+        history = conversations.get(conversation_key, [])
+        
+        # Add the new user message
+        history.append({"role": "user", "content": message_text})
+        
+        # Ensure the history doesn't grow too large (e.g., keep last 20 messages)
+        if len(history) > 20:
+            history = history[-20:]
+
+        # Get a default LLM client
+        llm_provider = next(iter(llm_clients))
+        llm_client = llm_clients[llm_provider]
+        model_name = llm_client.get_default_model()
+        if not model_name:
+            raise Exception("No default AI model configured for the bot.")
+
+        # Call the conversational endpoint without providing original_messages
+        stream = llm_client.call_conversational(model_name, history, None)
+
+        ai_response = ""
+        async for chunk in stream:
+            ai_response += chunk
+        
+        # Add the AI's full response to the history
+        history.append({"role": "model", "content": ai_response})
+        
+        # Store the updated history
+        conversations[conversation_key] = history
+        
+        # Send the response to the user
+        await bot_client.send_message(user_chat_id, ai_response)
+
+    except Exception as e:
+        logger.error(f"Error in AI mode: {e}", exc_info=True)
+        error_message = "I encountered an error in AI mode. Please try again."
+        await bot_client.send_message(user_chat_id, error_message)
+
+async def _handle_summarizer_mode(bot_client: Any, telegram_client: Any, active_user_id: str, user_chat_id: int, bot_id: int, message_text: str):
+    """Handles the original chat summarization logic."""
     import re
     days_match = re.search(r"last (\d+) days", message_text, re.IGNORECASE)
     
@@ -604,7 +649,6 @@ async def _process_telegram_bot_command(bot_client: Any, telegram_client: Any, a
     logger.info(f"Bot {bot_id} using user '{active_user_id}' to fetch history for chat with user {user_chat_id}")
     
     try:
-        # The chat with the bot is identified by the bot's own ID from the user's perspective
         messages_list = await telegram_client.get_messages(
             active_user_id,
             str(bot_id),
@@ -638,6 +682,33 @@ async def _process_telegram_bot_command(bot_client: Any, telegram_client: Any, a
         logger.error(f"Bot failed to process message: {e}", exc_info=True)
         error_message = "I encountered an error trying to process your request. Please check the server logs."
         await bot_client.send_message(user_chat_id, error_message)
+
+async def _process_telegram_bot_command(bot_client: Any, telegram_client: Any, active_user_id: str, user_chat_id: int, bot_id: int, message_text: str):
+    """
+    Acts as a dispatcher for Telegram bot commands.
+    Handles mode switching and delegates to the appropriate handler.
+    """
+    if message_text.strip() == '/aimode':
+        current_mode = chat_modes.get(user_chat_id, 'summarizer')
+        if current_mode == 'summarizer':
+            chat_modes[user_chat_id] = 'aimode'
+            await bot_client.send_message(user_chat_id, "AI mode enabled. I will now respond directly. Send /aimode again to switch back.")
+        else:
+            chat_modes[user_chat_id] = 'summarizer'
+            # Also clear conversation history for this chat
+            conversation_key = f"telegram_bot_{user_chat_id}"
+            if conversation_key in conversations:
+                del conversations[conversation_key]
+                logger.info(f"Cleared conversation history for chat {user_chat_id} upon switching to summarizer mode.")
+            await bot_client.send_message(user_chat_id, "Summarizer mode enabled.")
+        return
+
+    # Delegate to the correct handler based on the current mode
+    current_mode = chat_modes.get(user_chat_id, 'summarizer')
+    if current_mode == 'aimode':
+        await _handle_ai_mode(bot_client, user_chat_id, message_text)
+    else:
+        await _handle_summarizer_mode(bot_client, telegram_client, active_user_id, user_chat_id, bot_id, message_text)
 
 @router_bot.post("/webex/webhook")
 async def webex_webhook(req: Request):

@@ -84,3 +84,5 @@ Here is the chat history:
 {text_to_summarize}
 ---
 """
+
+GENERAL_AI_SYSTEM_PROMPT = "You are a helpful and friendly AI assistant."

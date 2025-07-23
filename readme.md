@@ -297,6 +297,8 @@ Once logged in, you will be on the "Analyze Chats" screen.
 5.  In the "Manage Bots" UI, provide this public URL in the "Public Webhook URL" field during registration. This will allow the application to automatically create the necessary webhook in Webex.
 6.  Once registered, go to any Webex space your bot has been added to and type `@YourBotName summarize last 2 days`. The bot will respond in the space.
 
+For a complete guide on setting up and using the Webex bot, including detailed command instructions and examples, please see the **[Webex Bot Guide](webex_bot_guide.md)**.
+
 ### Using the Telegram Bot
 
 1.  After logging into the application, click the **"Manage Bots"** button.
@@ -305,6 +307,15 @@ Once logged in, you will be on the "Analyze Chats" screen.
 4.  Copy the public HTTPS URL provided by ngrok (e.g., `https://abcdef123.ngrok.io`).
 5.  In the "Manage Bots" UI, provide this public URL in the "Public Webhook URL" field during registration. This will allow the application to automatically set the necessary webhook with Telegram.
 6.  Once registered, you can send a message to your bot in any chat it is a part of. For example: `summarize last 2 days`.
+
+### Telegram Bot Features
+
+The Telegram bot supports multiple commands to enhance your chat analysis experience. Beyond basic summarization, the bot now includes a conversational AI mode.
+
+-   **/summarize**: Generate a summary of chat messages for a specified duration (e.g., `summarize last 3 days`).
+-   **/aimode**: Switch to a conversational mode where you can ask the AI direct questions about the chat history.
+
+For a complete guide on setting up and using the Telegram bot, including detailed command instructions and examples, please see the **[Telegram Bot Guide](telegram_bot_guide.md)**.
 
 ### Switching Services
 
