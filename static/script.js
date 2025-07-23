@@ -440,33 +440,38 @@ async function loadModels() {
     try {
         const data = await makeApiRequest('/api/models', { method: 'GET' }, config.timeouts.loadModels, null, 'login');
         if (modelSelect) modelSelect.innerHTML = '';
-        Object.keys(data).forEach(key => {
-            if (key.endsWith('_models')) {
-                const models = data[key];
-                const providerName = key.replace('_models', '').replace('_', ' ');
-                const groupLabel = providerName.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-                
-                if (models && models.length > 0) {
-                    const optgroup = document.createElement('optgroup');
-                    optgroup.label = groupLabel;
-                    models.forEach(modelName => {
-                        const option = document.createElement('option');
-                        option.value = modelName;
-                        option.textContent = modelName;
-                        optgroup.appendChild(option);
-                    });
-                    if (modelSelect) modelSelect.appendChild(optgroup);
-                }
+
+        const modelsByProvider = data.models.reduce((acc, { provider, model }) => {
+            if (!acc[provider]) {
+                acc[provider] = [];
             }
-        });
+            acc[provider].push(model);
+            return acc;
+        }, {});
+
+        for (const provider in modelsByProvider) {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = provider.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+            
+            modelsByProvider[provider].forEach(modelName => {
+                const option = document.createElement('option');
+                // Use a unique separator to avoid conflicts with model names
+                option.value = `${provider}_PROVIDER_SEPARATOR_${modelName}`;
+                option.textContent = modelName;
+                optgroup.appendChild(option);
+            });
+            modelSelect.appendChild(optgroup);
+        }
 
         if (modelSelect && modelSelect.options.length > 0) {
             modelSelect.disabled = false;
             appState.modelsLoaded = true;
-            const defaultModels = data.default_models || {};
-            const firstDefault = Object.values(defaultModels).find(model => model && modelSelect.querySelector(`option[value="${model}"]`));
-            if (firstDefault) {
-                modelSelect.value = firstDefault;
+            const defaultModelInfo = data.default_model_info;
+            if (defaultModelInfo && defaultModelInfo.provider && defaultModelInfo.model) {
+                const defaultValue = `${defaultModelInfo.provider}_PROVIDER_SEPARATOR_${defaultModelInfo.model}`;
+                if (modelSelect.querySelector(`option[value="${defaultValue}"]`)) {
+                    modelSelect.value = defaultValue;
+                }
             }
         } else {
             if (modelError) modelError.textContent = 'No AI models available.';
@@ -494,9 +499,16 @@ async function callChatApi(message = null) {
     
     let fullResponseText = '';
     try {
+        const selectedModel = modelSelect.value;
+        if (!selectedModel || !selectedModel.includes('_PROVIDER_SEPARATOR_')) {
+            throw new Error("Invalid model selection.");
+        }
+        const [provider, modelName] = selectedModel.split('_PROVIDER_SEPARATOR_');
+
         const requestBody = {
             chatId: tomSelectInstance.getValue(),
-            modelName: modelSelect.value,
+            provider: provider,
+            modelName: modelName,
             startDate: $('#dateRangePicker').data('daterangepicker').startDate.format('YYYY-MM-DD'),
             endDate: $('#dateRangePicker').data('daterangepicker').endDate.format('YYYY-MM-DD'),
             enableCaching: cacheChatsToggle.checked,

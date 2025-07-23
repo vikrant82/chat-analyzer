@@ -37,12 +37,12 @@ class UnifiedBotClient:
     async def get_messages(self, **kwargs):
         return self._client.get_messages(**kwargs)
 
-    async def get_chat_history(self, user_client, chat_id, days):
+    async def get_me(self) -> dict:
         if isinstance(self._client, TelegramBotClient):
-            return await self._client.get_chat_history(user_client, chat_id, days)
-        else:
-            # WebexBotClient does not have a get_chat_history method
-            return []
+            return await self._client.get_me()
+        # Return a default/empty dict or raise an error if not applicable
+        return {}
+
 
 def get_bot_client(backend: str, token: str):
     """
