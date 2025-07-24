@@ -174,7 +174,42 @@ class WebexClientImpl(ChatClient):
                         logger.info(f"Caching {len(messages_for_this_day)} messages for Webex on {day_to_cache.date()} at {cache_path}")
                         json.dump([msg.model_dump() for msg in messages_for_this_day], f)
 
-        return sorted(all_messages, key=lambda m: m.timestamp)
+        # Group messages by thread_id
+        threads: Dict[str, List[Message]] = {}
+        top_level_messages: List[Message] = []
+
+        for msg in all_messages:
+            if msg.thread_id:
+                if msg.thread_id not in threads:
+                    threads[msg.thread_id] = []
+                threads[msg.thread_id].append(msg)
+            else:
+                # This is a top-level message
+                top_level_messages.append(msg)
+        
+        # Sort messages within each thread
+        for thread_id in threads:
+            threads[thread_id].sort(key=lambda m: m.timestamp)
+
+        # Reconstruct the final list, with threaded messages following their parent
+        final_message_list: List[Message] = []
+        
+        # Sort top-level messages by timestamp to maintain overall order
+        top_level_messages.sort(key=lambda m: m.timestamp)
+
+        for top_msg in top_level_messages:
+            final_message_list.append(top_msg)
+            # If this top-level message has a thread, append it
+            if top_msg.id in threads:
+                final_message_list.extend(threads[top_msg.id])
+                # Remove the thread once it's been added
+                del threads[top_msg.id]
+
+        # Add any remaining threads that might have been orphaned (optional, but good practice)
+        for thread_id in sorted(threads.keys()):
+             final_message_list.extend(threads[thread_id])
+
+        return final_message_list
 
     async def is_session_valid(self, user_identifier: str) -> bool:
         try:

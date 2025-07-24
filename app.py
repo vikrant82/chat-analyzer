@@ -299,7 +299,31 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
                 yield "No messages found in the selected date range. Please select a different range."
             return StreamingResponse(empty_message_stream(), media_type="text/event-stream")
         
-        original_messages = "\n\n".join([f"[{m.author.name} at {m.timestamp}]: {m.text}" for m in messages_list])
+        # Format messages with thread context
+        formatted_parts = []
+        in_thread = False
+        for i, msg in enumerate(messages_list):
+            is_reply = msg.thread_id is not None
+            
+            # Check if a thread is starting
+            if is_reply and not in_thread:
+                formatted_parts.append("\n--- Thread Started ---")
+                in_thread = True
+            
+            # Check if a thread is ending
+            if not is_reply and in_thread:
+                formatted_parts.append("--- Thread Ended ---\n")
+                in_thread = False
+
+            # Format the message itself
+            prefix = "    " if is_reply else ""
+            formatted_parts.append(f"{prefix}[{msg.author.name} at {msg.timestamp}]: {msg.text}")
+
+        # If the last message was in a thread, close it
+        if in_thread:
+            formatted_parts.append("--- Thread Ended ---")
+
+        original_messages = "\n".join(formatted_parts)
         message_cache[cache_key] = original_messages
         message_count = len(messages_list)
     else:
@@ -353,7 +377,31 @@ async def download_chat(req: DownloadRequest, user_id: str = Depends(get_current
     if not messages_list:
         raise HTTPException(status_code=404, detail="No messages found in the selected date range.")
 
-    chat_history = "\n\n".join([f"[{m.author.name} at {m.timestamp}]: {m.text}" for m in messages_list])
+    # Format messages with thread context
+    formatted_parts = []
+    in_thread = False
+    for i, msg in enumerate(messages_list):
+        is_reply = msg.thread_id is not None
+        
+        # Check if a thread is starting
+        if is_reply and not in_thread:
+            formatted_parts.append("\n--- Thread Started ---")
+            in_thread = True
+        
+        # Check if a thread is ending
+        if not is_reply and in_thread:
+            formatted_parts.append("--- Thread Ended ---\n")
+            in_thread = False
+
+        # Format the message itself
+        prefix = "    " if is_reply else ""
+        formatted_parts.append(f"{prefix}[{msg.author.name} at {msg.timestamp}]: {msg.text}")
+
+    # If the last message was in a thread, close it
+    if in_thread:
+        formatted_parts.append("--- Thread Ended ---")
+
+    chat_history = "\n".join(formatted_parts)
     
     if req.format == "pdf":
         pdf_buffer = _create_pdf(chat_history, req.chatId)
