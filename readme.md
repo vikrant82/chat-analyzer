@@ -13,6 +13,7 @@ The application features a robust caching system to ensure fast, repeated analys
     -   Ask follow-up questions without re-submitting the initial query.
     -   The AI maintains context throughout the conversation.
 -   **AI-Powered Analysis & Bot Integration**:
+    -   **Threaded Conversation Support**: Automatically detects and groups threaded conversations in Webex, providing the LLM with the full context of the conversation.
     -   **Webex Bot Support**: Register a Webex bot to invoke the analyzer directly from any Webex space. The bot leverages the permissions of the logged-in user to access and summarize chat history.
     -   **Telegram Bot Support**: Register a Telegram bot and interact with it directly to get summaries of any chat your user account is in.
     -   Mention the bot (e.g., `@MyAnalyzerBot summarize last 2 days`) to get an instant summary.

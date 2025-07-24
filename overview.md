@@ -5,6 +5,7 @@
    - **User:** Developers and end-users who want to quickly understand the content of a chat conversation.
    - **Core Functionality:**
      - **Webex Bot Integration**: Allows users to register a Webex bot and invoke the chat analyzer from any Webex space by mentioning the bot.
+           - **Webex Threading**: The application now correctly handles threaded conversations in Webex. Messages are grouped by thread, and the context is formatted to preserve the conversational flow of the threads.
      - **Telegram Bot Integration**: Allows users to register a Telegram bot and interact with it directly to get summaries of any chat.
      - **/aimode for Telegram Bot**: A feature that enables a conversational AI mode, allowing users to ask direct questions to the AI about the chat history.
 
@@ -79,3 +80,8 @@
 
 **9. Missing Information & Inferences**
    - The project lacks a formal testing suite.
+
+
+**Developer Notes:**
+
+*   **Attempted Fixes (2025-07-24):** An attempt was made to fix various Pylance warning in `app.py` related to an not having an `await` call on a stream. This change, while technically correct, caused the UI to stop updating. A subsequent attempt to fix the streaming response format also failed. These fixes should not be attempted again without a deeper investigation into the frontend's handling of the stream.
