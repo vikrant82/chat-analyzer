@@ -53,12 +53,9 @@ const chatLoadingError = document.getElementById('chatLoadingError');
 const refreshChatsLink = document.getElementById('refreshChatsLink');
 const lastUpdatedTime = document.getElementById('lastUpdatedTime');
 const logoutButton = document.getElementById('logoutButton');
-const switchServiceButton = document.getElementById('switchServiceButton');
 const cacheChatsToggle = document.getElementById('cacheChatsToggle');
-const switchServiceModal = document.getElementById('switchServiceModal');
-const switchServiceOptions = document.getElementById('switchServiceOptions');
-const cancelSwitchButton = document.getElementById('cancelSwitchButton');
 const chatSectionTitle = document.getElementById('chatSectionTitle');
+const backendSelectMain = document.getElementById('backendSelect-main');
 const conversationalChatSection = document.getElementById('conversationalChatSection');
 const chatWindow = document.getElementById('chatWindow');
 const chatInput = document.getElementById('chatInput');
@@ -66,6 +63,8 @@ const sendChatButton = document.getElementById('sendChatButton');
 const clearChatButton = document.getElementById('clearChatButton');
 const startChatButton = document.getElementById('startChatButton');
 const initialQuestion = document.getElementById('initialQuestion');
+const initialQuestionGroup = document.getElementById('initialQuestionGroup');
+const toggleQuestionCheckbox = document.getElementById('toggleQuestionCheckbox');
 const downloadChatButton = document.getElementById('downloadChatButton');
 const downloadFormat = document.getElementById('downloadFormat');
 const botManagementSection = document.getElementById('botManagementSection');
@@ -80,6 +79,8 @@ const registerBotButton = document.getElementById('registerBotButton');
 const botManagementError = document.getElementById('botManagementError');
 const registeredBotsList = document.getElementById('registeredBotsList');
 const welcomeMessage = document.getElementById('welcomeMessage');
+const toggleLhsButton = document.getElementById('toggleLhsButton');
+const mainContainer = document.querySelector('.main-container');
 
 // --- Utility Functions ---
 function setLoadingState(buttonElement, isLoading, loadingText = 'Processing...') {
@@ -216,6 +217,9 @@ function showSection(sectionName) {
         if (chatSectionTitle) {
             chatSectionTitle.textContent = `Analyze Chats (${appState.activeBackend.charAt(0).toUpperCase() + appState.activeBackend.slice(1)})`;
         }
+        if (backendSelectMain) {
+            backendSelectMain.value = appState.activeBackend;
+        }
         if (!appState.modelsLoaded) {
             loadModels();
         }
@@ -248,21 +252,6 @@ function handleBackendChange() {
         telegramLoginForm.style.display = selectedBackend === 'telegram' ? 'block' : 'none';
         webexLoginContainer.style.display = selectedBackend === 'webex' ? 'block' : 'none';
     }
-}
-
-function openSwitchServiceModal() {
-    if (!switchServiceOptions || !switchServiceModal) return;
-    switchServiceOptions.innerHTML = '';
-    const otherBackend = appState.activeBackend === 'telegram' ? 'webex' : 'telegram';
-    
-    const button = document.createElement('button');
-    button.textContent = `Switch to ${otherBackend.charAt(0).toUpperCase() + otherBackend.slice(1)}`;
-    button.onclick = () => {
-        switchService(otherBackend);
-        switchServiceModal.style.display = 'none';
-    };
-    switchServiceOptions.appendChild(button);
-    switchServiceModal.style.display = 'block';
 }
 
 async function switchService(newBackend) {
@@ -789,16 +778,33 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    if (toggleQuestionCheckbox && initialQuestionGroup) {
+        toggleQuestionCheckbox.addEventListener('change', () => {
+            initialQuestionGroup.style.display = toggleQuestionCheckbox.checked ? 'block' : 'none';
+        });
+    }
+
     if (backendSelect) backendSelect.addEventListener('change', handleBackendChange);
     if (loginSubmitButton) loginSubmitButton.addEventListener('click', handleLogin);
     if (webexLoginButton) webexLoginButton.addEventListener('click', handleLogin);
     if (verifyButton) verifyButton.addEventListener('click', handleVerify);
     if (logoutButton) logoutButton.addEventListener('click', handleFullLogout);
-    if (switchServiceButton) switchServiceButton.addEventListener('click', openSwitchServiceModal);
-    if (cancelSwitchButton) cancelSwitchButton.addEventListener('click', () => switchServiceModal.style.display = 'none');
     if (refreshChatsLink) refreshChatsLink.addEventListener('click', handleLoadChats);
     
     if (modelSelect) modelSelect.addEventListener('change', updateStartChatButtonState);
+    if (backendSelectMain) {
+        backendSelectMain.addEventListener('change', () => {
+            const newBackend = backendSelectMain.value;
+            if (newBackend !== appState.activeBackend) {
+                if (confirm('Are you sure you want to switch services? This will clear your current session and chat list.')) {
+                    switchService(newBackend);
+                } else {
+                    // Reset dropdown to the original value if user cancels
+                    backendSelectMain.value = appState.activeBackend;
+                }
+            }
+        });
+    }
     if (downloadChatButton) downloadChatButton.addEventListener('click', handleDownloadChat);
     
     checkSessionOnLoad();
@@ -806,6 +812,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (manageBotsButton) manageBotsButton.addEventListener('click', () => showSection('botManagementSection'));
     if (backToChatsButton) backToChatsButton.addEventListener('click', () => showSection('chatSection'));
     if (registerBotButton) registerBotButton.addEventListener('click', handleRegisterBot);
+    if (toggleLhsButton && mainContainer) {
+        toggleLhsButton.addEventListener('click', () => {
+            mainContainer.classList.toggle('lhs-collapsed');
+            if (mainContainer.classList.contains('lhs-collapsed')) {
+                toggleLhsButton.innerHTML = '&rarr;';
+                toggleLhsButton.title = 'Show sidebar';
+            } else {
+                toggleLhsButton.innerHTML = '&larr;';
+                toggleLhsButton.title = 'Hide sidebar';
+            }
+        });
+    }
 });
 
 // --- Bot Management ---
