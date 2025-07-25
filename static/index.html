@@ -42,106 +42,123 @@
         <div id="verificationSection" class="section">
             <h2>Verification</h2>
             <p>Enter the code sent to your Telegram account. If you have 2-Factor Authentication enabled, you will also be prompted for your password.</p>
-            <div class="form-group">
-                <label for="verificationCode">Verification Code:</label>
-                <input type="text" id="verificationCode" required>
-            </div>
-             <div class="form-group" id="passwordField" style="display: none;">
-                <label for="password">Password (2FA)</label>
-                <input type="password" id="password" placeholder="Enter your 2FA password">
-            </div>
-            <button type="button" id="verifyButton">Verify</button>
+            <form id="verificationForm">
+                <div class="form-group">
+                    <label for="verificationCode">Verification Code:</label>
+                    <input type="text" id="verificationCode" required autocomplete="one-time-code">
+                </div>
+                <div class="form-group" id="passwordField" style="display: none;">
+                    <label for="password">Password (2FA)</label>
+                    <input type="password" id="password" placeholder="Enter your 2FA password" autocomplete="current-password">
+                </div>
+                <button type="button" id="verifyButton">Verify</button>
+            </form>
             <div id="verificationError" class="error-message"></div>
         </div>
 
         <!-- Chat Selection & Analysis Section -->
         <div id="chatSection" class="section">
-            <div class="main-content-wrapper">
-                <div class="analysis-column">
-                    <h2 id="chatSectionTitle">Analyze Chats</h2>
-                    <div class="form-group">
-                        <div class="chat-label-group">
-                            <label for="chatSelect">1. Select a Chat:</label>
-                            <a id="refreshChatsLink">Refresh List</a>
-                        </div>
-                        <select id="chatSelect" required></select>
-                        <div id="chatLoadingError" class="error-message"></div>
-                        <span id="lastUpdatedTime"></span>
-                    </div>
-                    <div class="form-group">
-                        <label for="modelSelect">2. Select an AI Model:</label>
-                        <select id="modelSelect" required disabled></select>
-                        <div id="modelError" class="error-message"></div>
-                    </div>
-                    <div class="form-group">
-                        <label for="dateRangePicker">3. Select a Date Range:</label>
-                        <input type="text" id="dateRangePicker" readonly>
-                    </div>
-                    <div id="dateError" class="error-message"></div>
-                     <div class="form-group checkbox-group">
-                        <input type="checkbox" id="cacheChatsToggle" checked>
-                        <label for="cacheChatsToggle">Enable caching for faster analysis</label>
-                    </div>
-                    <div class="form-group">
-                        <label for="initialQuestion">4. Optional: Start with a specific question</label>
-                        <textarea id="initialQuestion" placeholder="e.g., What was the final decision on the Orion project?"></textarea>
-                    </div>
-                    <div class="button-group">
-                        <button id="startChatButton" type="button" disabled>Start Chat</button>
-                        <div class="download-group">
-                            <select id="downloadFormat">
-                                <option value="pdf">PDF</option>
-                                <option value="txt">Text</option>
+            <div class="main-container">
+                <div class="left-column">
+                    <div class="config-panel">
+                        <h2 id="chatSectionTitle">Configuration</h2>
+                        <div class="form-group">
+                            <label for="backendSelect-main">Chat Service:</label>
+                            <select id="backendSelect-main" disabled>
+                                <option value="telegram">Telegram</option>
+                                <option value="webex">Webex</option>
                             </select>
-                            <button id="downloadChatButton" type="button" disabled>Download Chat</button>
+                        </div>
+                        <div class="form-group">
+                            <div class="chat-label-group">
+                                <label for="chatSelect">1. Select a Chat:</label>
+                                <a id="refreshChatsLink">Refresh List</a>
+                            </div>
+                            <select id="chatSelect" required></select>
+                            <div id="chatLoadingError" class="error-message"></div>
+                            <span id="lastUpdatedTime"></span>
+                        </div>
+                        <div class="form-group">
+                            <label for="modelSelect">2. Select an AI Model:</label>
+                            <select id="modelSelect" required disabled></select>
+                            <div id="modelError" class="error-message"></div>
+                        </div>
+                        <div class="form-group">
+                            <label for="dateRangePicker">3. Select a Date Range:</label>
+                            <input type="text" id="dateRangePicker" readonly>
+                        </div>
+                        <div id="dateError" class="error-message"></div>
+                        <div class="form-group checkbox-group">
+                            <input type="checkbox" id="cacheChatsToggle" checked>
+                            <label for="cacheChatsToggle">Enable caching for faster analysis</label>
+                        </div>
+                        <div class="form-group">
+                            <label for="initialQuestion">4. Optional: Start with a specific question</label>
+                            <textarea id="initialQuestion" placeholder="e.g., What was the final decision on the Orion project?"></textarea>
+                        </div>
+                        <div class="button-group">
+                            <button id="startChatButton" type="button" disabled>Start Chat</button>
+                            <div class="download-group">
+                                <select id="downloadFormat">
+                                    <option value="pdf">PDF</option>
+                                    <option value="txt">Text</option>
+                                </select>
+                                <button id="downloadChatButton" type="button" disabled>Download Chat</button>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <!-- Unified Chat Section -->
-                <div id="conversationalChatSection" class="chat-column" style="display: none;">
-                    <h2 id="conversationalChatTitle">Conversation</h2>
-                    <div id="chatWindow">
-                        <!-- Chat messages will be appended here -->
-                    </div>
-                    <div class="chat-input-area">
-                        <textarea id="chatInput" placeholder="Ask a follow-up question..."></textarea>
-                        <button id="sendChatButton">Send</button>
-                    </div>
-                     <div class="footer-actions">
-                        <button id="clearChatButton" type="button">Clear & Start New</button>
+                    <div class="footer-actions">
+                        <button id="switchServiceButton" type="button">Switch Service</button>
+                        <button id="logoutButton" type="button">Logout</button>
+                        <button id="manageBotsButton" type="button">Manage Bots</button>
                     </div>
                 </div>
-            </div>
-
-            <div class="footer-actions">
-                <button id="switchServiceButton" type="button">Switch Service</button>
-                <button id="logoutButton" type="button">Logout</button>
-                <button id="manageBotsButton" type="button">Manage Bots</button>
+                <div class="right-column">
+                    <div id="conversationalChatSection" class="chat-column" style="display: none;">
+                        <h2 id="conversationalChatTitle">Conversation</h2>
+                        <div id="chatWindow">
+                            <!-- Chat messages will be appended here -->
+                        </div>
+                        <div class="chat-input-area">
+                            <textarea id="chatInput" placeholder="Ask a follow-up question..."></textarea>
+                            <button id="sendChatButton">Send</button>
+                        </div>
+                        <div class="footer-actions">
+                            <button id="clearChatButton" type="button">Clear & Start New</button>
+                        </div>
+                    </div>
+                     <div id="welcomeMessage" class="welcome-message">
+                        <h2>Welcome to Chat Analyzer</h2>
+                        <p>Select a chat from the left panel to get started.</p>
+                    </div>
+                </div>
             </div>
         </div>
 
         <!-- Bot Management Section -->
         <div id="botManagementSection" class="section">
             <h2 id="botManagementTitle">Manage Bots</h2>
-            <div class="form-group">
-                <label for="botName">Bot Name:</label>
-                <input type="text" id="botName" placeholder="e.g., My Analyzer Bot">
-            </div>
-            <div class="form-group" id="botIdRow">
-                <label for="botId">Bot ID:</label>
-                <input type="text" id="botId" placeholder="Enter the bot's unique ID">
-            </div>
-            <div class="form-group">
-                <label for="botToken">Bot Token:</label>
-                <input type="password" id="botToken" placeholder="Enter the bot's access token">
-            </div>
-            <div class="form-group">
-                <label for="webhookUrl">Public Webhook URL (Optional):</label>
-                <input type="url" id="webhookUrl" placeholder="e.g., https://your-domain.ngrok.io" style="width:100%; margin-bottom: 4px;">
-                <br>
-                <small>Provide this only if you want to automatically register the webhook.</small>
-            </div>
-            <button id="registerBotButton" type="button">Register Bot</button>
+            <form id="botManagementForm">
+                <div class="form-group">
+                    <label for="botName">Bot Name:</label>
+                    <input type="text" id="botName" placeholder="e.g., My Analyzer Bot">
+                </div>
+                <div class="form-group" id="botIdRow">
+                    <label for="botId">Bot ID:</label>
+                    <input type="text" id="botId" placeholder="Enter the bot's unique ID" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="botToken">Bot Token:</label>
+                    <input type="password" id="botToken" placeholder="Enter the bot's access token" autocomplete="current-password">
+                </div>
+                <div class="form-group">
+                    <label for="webhookUrl">Public Webhook URL (Optional):</label>
+                    <input type="url" id="webhookUrl" placeholder="e.g., https://your-domain.ngrok.io" style="width:100%; margin-bottom: 4px;">
+                    <br>
+                    <small>Provide this only if you want to automatically register the webhook.</small>
+                </div>
+                <button id="registerBotButton" type="button">Register Bot</button>
+            </form>
             <div id="botManagementError" class="error-message"></div>
 
             <h3>Registered Bots</h3>

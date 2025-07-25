@@ -14,7 +14,7 @@ body {
 /* --- Main Container --- */
 .container {
     width: 100%;
-    max-width: 1200px;
+    max-width: 1600px; /* Increased max-width for wider layout */
     margin: 0 auto;
     background: rgba(255, 255, 255, 0.85);
     backdrop-filter: blur(10px);
@@ -22,6 +22,31 @@ body {
     box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
     border-radius: 12px;
     padding: 2rem;
+}
+
+.main-container {
+    display: flex;
+    gap: 2rem;
+}
+
+.left-column {
+    width: 380px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: calc(100vh - 4rem - 70px); /* Full height minus padding and header */
+}
+
+.config-panel {
+    overflow-y: auto;
+    padding-right: 1rem; /* For scrollbar spacing */
+}
+
+.right-column {
+    flex-grow: 1;
+    overflow-y: auto;
+    height: calc(100vh - 4rem - 70px); /* Full height minus padding and header */
 }
 
 /* --- Typography --- */
@@ -245,14 +270,23 @@ button:disabled {
     background-color: #fff;
 }
 
+.welcome-message {
+    text-align: center;
+    padding: 4rem 2rem;
+    color: #606770;
+}
+
 #conversationalChatSection {
-    margin-top: 2rem;
-    border-top: 1px solid #e9ebee;
-    padding-top: 1.5rem;
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
 }
 
 #chatWindow {
-    height: 60vh;
+    flex-grow: 1; /* Takes up available space */
     overflow-y: auto;
     background: #f7f8fa;
     border: 1px solid #e9ebee;
@@ -300,6 +334,19 @@ button:disabled {
     width: auto;
 }
 
+
+@media (max-width: 1024px) {
+    .main-container {
+        flex-direction: column;
+        height: auto;
+    }
+
+    .left-column, .right-column {
+        width: 100%;
+        height: auto;
+        max-height: none;
+    }
+}
 
 @media (max-width: 600px) {
     .container {

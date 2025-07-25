@@ -79,6 +79,7 @@ const webhookUrlInput = document.getElementById('webhookUrl');
 const registerBotButton = document.getElementById('registerBotButton');
 const botManagementError = document.getElementById('botManagementError');
 const registeredBotsList = document.getElementById('registeredBotsList');
+const welcomeMessage = document.getElementById('welcomeMessage');
 
 // --- Utility Functions ---
 function setLoadingState(buttonElement, isLoading, loadingText = 'Processing...') {
@@ -278,6 +279,7 @@ async function switchService(newBackend) {
     appState.conversation = [];
     if (chatWindow) chatWindow.innerHTML = '';
     if (conversationalChatSection) conversationalChatSection.style.display = 'none';
+    if (welcomeMessage) welcomeMessage.style.display = 'block';
 
     const token = localStorage.getItem(getSessionTokenKey(newBackend));
     if (token) {
@@ -693,8 +695,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const chatColumn = document.getElementById('conversationalChatSection');
+            if (welcomeMessage) {
+                welcomeMessage.style.display = 'none';
+            }
             if (chatColumn) {
-                chatColumn.style.display = 'block';
+                chatColumn.style.display = 'flex';
                 startChatButton.disabled = true;
                 if (initialQuestion) {
                     initialQuestion.style.display = 'none';
@@ -742,6 +747,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (chatColumn) {
                 chatColumn.style.display = 'none';
             }
+            if(welcomeMessage) {
+                welcomeMessage.style.display = 'block';
+            }
             if (initialQuestion) {
                 initialQuestion.style.display = 'block';
             }
@@ -760,6 +768,9 @@ document.addEventListener('DOMContentLoaded', () => {
             appState.conversation = [];
             if (chatWindow) chatWindow.innerHTML = '';
             if (conversationalChatSection) conversationalChatSection.style.display = 'none';
+            if (welcomeMessage) {
+                welcomeMessage.style.display = 'block';
+            }
             if (initialQuestion) {
                 initialQuestion.style.display = 'block';
                 initialQuestion.value = '';
