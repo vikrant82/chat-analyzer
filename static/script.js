@@ -81,6 +81,7 @@ const registeredBotsList = document.getElementById('registeredBotsList');
 const welcomeMessage = document.getElementById('welcomeMessage');
 const toggleLhsButton = document.getElementById('toggleLhsButton');
 const mainContainer = document.querySelector('.main-container');
+const mobileMenuOverlay = document.getElementById('mobileMenuOverlay');
 
 // --- Utility Functions ---
 function setLoadingState(buttonElement, isLoading, loadingText = 'Processing...') {
@@ -814,14 +815,31 @@ document.addEventListener('DOMContentLoaded', () => {
     if (registerBotButton) registerBotButton.addEventListener('click', handleRegisterBot);
     if (toggleLhsButton && mainContainer) {
         toggleLhsButton.addEventListener('click', () => {
-            mainContainer.classList.toggle('lhs-collapsed');
-            if (mainContainer.classList.contains('lhs-collapsed')) {
-                toggleLhsButton.innerHTML = '&rarr;';
-                toggleLhsButton.title = 'Show sidebar';
+            const isMobile = window.innerWidth <= 1024;
+            if (isMobile) {
+                mainContainer.classList.toggle('mobile-menu-open');
+                if (mainContainer.classList.contains('mobile-menu-open')) {
+                    toggleLhsButton.innerHTML = '&times;';
+                } else {
+                    toggleLhsButton.innerHTML = '&#9776;';
+                }
             } else {
-                toggleLhsButton.innerHTML = '&larr;';
-                toggleLhsButton.title = 'Hide sidebar';
+                mainContainer.classList.toggle('lhs-collapsed');
+                if (mainContainer.classList.contains('lhs-collapsed')) {
+                    toggleLhsButton.innerHTML = '&rarr;';
+                    toggleLhsButton.title = 'Show sidebar';
+                } else {
+                    toggleLhsButton.innerHTML = '&larr;';
+                    toggleLhsButton.title = 'Hide sidebar';
+                }
             }
+        });
+    }
+
+    if(mobileMenuOverlay) {
+        mobileMenuOverlay.addEventListener('click', () => {
+            mainContainer.classList.remove('mobile-menu-open');
+            toggleLhsButton.innerHTML = '&#9776;';
         });
     }
 });
