@@ -47,6 +47,7 @@ body {
     flex-grow: 1;
     overflow-y: auto;
     height: calc(100vh - 4rem - 70px); /* Full height minus padding and header */
+    position: relative;
 }
 
 /* --- Typography --- */
@@ -334,6 +335,25 @@ button:disabled {
     width: auto;
 }
 
+#toggleLhsButton {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 10;
+    width: auto;
+    flex-shrink: 0;
+    padding: 8px 12px;
+    background-color: #e4e6eb;
+    color: #050505;
+    border-radius: 0 0 6px 0;
+}
+
+.main-container.lhs-collapsed .left-column {
+    width: 0;
+    padding: 0;
+    overflow: hidden;
+    border-right: none;
+}
 
 @media (max-width: 1024px) {
     .main-container {

@@ -64,7 +64,7 @@
                         <h2 id="chatSectionTitle">Configuration</h2>
                         <div class="form-group">
                             <label for="backendSelect-main">Chat Service:</label>
-                            <select id="backendSelect-main" disabled>
+                            <select id="backendSelect-main">
                                 <option value="telegram">Telegram</option>
                                 <option value="webex">Webex</option>
                             </select>
@@ -92,8 +92,11 @@
                             <input type="checkbox" id="cacheChatsToggle" checked>
                             <label for="cacheChatsToggle">Enable caching for faster analysis</label>
                         </div>
-                        <div class="form-group">
-                            <label for="initialQuestion">4. Optional: Start with a specific question</label>
+                        <div class="form-group checkbox-group">
+                            <input type="checkbox" id="toggleQuestionCheckbox">
+                            <label for="toggleQuestionCheckbox">4. Optional: Start with a specific question</label>
+                        </div>
+                        <div class="form-group" id="initialQuestionGroup" style="display: none;">
                             <textarea id="initialQuestion" placeholder="e.g., What was the final decision on the Orion project?"></textarea>
                         </div>
                         <div class="button-group">
@@ -108,12 +111,12 @@
                         </div>
                     </div>
                     <div class="footer-actions">
-                        <button id="switchServiceButton" type="button">Switch Service</button>
                         <button id="logoutButton" type="button">Logout</button>
                         <button id="manageBotsButton" type="button">Manage Bots</button>
                     </div>
                 </div>
                 <div class="right-column">
+                    <button id="toggleLhsButton" type="button" title="Toggle sidebar">&larr;</button>
                     <div id="conversationalChatSection" class="chat-column" style="display: none;">
                         <h2 id="conversationalChatTitle">Conversation</h2>
                         <div id="chatWindow">
@@ -176,15 +179,6 @@
              <div class="footer-actions">
                 <button id="backToChatsButton" type="button">Back to Chats</button>
             </div>
-        </div>
-    </div>
-
-    <!-- Switch Service Modal -->
-    <div id="switchServiceModal" class="modal">
-        <div class="modal-content">
-            <h3>Switch To...</h3>
-            <div id="switchServiceOptions"></div>
-            <button id="cancelSwitchButton">Cancel</button>
         </div>
     </div>
 
