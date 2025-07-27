@@ -27,7 +27,6 @@ const config = {
     }
 };
 
-let tomSelectInstance = null;
 
 // --- DOM Elements ---
 const loginSection = document.getElementById('loginSection');
@@ -82,6 +81,7 @@ const welcomeMessage = document.getElementById('welcomeMessage');
 const toggleLhsButton = document.getElementById('toggleLhsButton');
 const mainContainer = document.querySelector('.main-container');
 const mobileMenuOverlay = document.getElementById('mobileMenuOverlay');
+const themeCheckbox = document.getElementById('theme-checkbox');
 
 // --- Utility Functions ---
 function setLoadingState(buttonElement, isLoading, loadingText = 'Processing...') {
@@ -108,9 +108,11 @@ function clearErrors() {
     if (botManagementError) botManagementError.textContent = '';
 }
 
+let choicesInstance = null;
+
 function updateStartChatButtonState() {
     if (!startChatButton) return;
-    const validChatSelected = tomSelectInstance && tomSelectInstance.getValue() !== "";
+    const validChatSelected = choicesInstance && choicesInstance.getValue(true) != null && choicesInstance.getValue(true) !== "";
     const validModelSelected = modelSelect && modelSelect.value && !modelSelect.options[modelSelect.selectedIndex]?.disabled;
     const baseRequirementsMet = appState.chatListStatus[appState.activeBackend] === 'loaded' && appState.modelsLoaded && validChatSelected && validModelSelected;
     startChatButton.disabled = !baseRequirementsMet;
@@ -122,23 +124,15 @@ function updateStartChatButtonState() {
     }
 }
 
-function initializeDateRangePicker() {
-    const dateRangePicker = $('#dateRangePicker');
-    dateRangePicker.daterangepicker({
-        startDate: moment(),
-        endDate: moment(),
-        ranges: {
-            'Last 2 Days': [moment().subtract(1, 'days'), moment()],
-            'Last 3 Days': [moment().subtract(2, 'days'), moment()],
-            'Last 4 Days': [moment().subtract(3, 'days'), moment()],
-            'Last Week': [moment().subtract(6, 'days'), moment()],
-            'This Month': [moment().startOf('month'), moment().endOf('month')],
-            'Last 2 Months': [moment().subtract(2, 'month').startOf('month'), moment()]
+function initializeFlatpickr() {
+    const dateRangePicker = document.getElementById('dateRangePicker');
+    flatpickr(dateRangePicker, {
+        mode: "range",
+        dateFormat: "Y-m-d",
+        defaultDate: ["today", "today"],
+        onChange: function(selectedDates, dateStr, instance) {
+            updateStartChatButtonState();
         }
-    });
-
-    dateRangePicker.on('apply.daterangepicker', function(ev, picker) {
-        updateStartChatButtonState();
     });
 }
 
@@ -367,54 +361,46 @@ async function handleFullLogout() {
         showSection('loginSection');
     }
     
-    if (tomSelectInstance) {
-        tomSelectInstance.clear();
-        tomSelectInstance.clearOptions();
-        tomSelectInstance.settings.placeholder = 'Select or search for a chat...';
-        tomSelectInstance.refreshOptions(false);
-        tomSelectInstance.disable();
+    if (choicesInstance) {
+        choicesInstance.clearStore();
+        choicesInstance.disable();
     }
 }
 
 async function handleLoadChats() {
     const backend = appState.activeBackend;
-    if (!backend || !tomSelectInstance || !appState.sessionTokens[backend]) {
+    if (!backend || !choicesInstance || !appState.sessionTokens[backend]) {
         if (chatLoadingError) chatLoadingError.textContent = "No active session.";
         return;
     }
 
     appState.chatListStatus[backend] = 'loading';
-    tomSelectInstance.clear();
-    tomSelectInstance.clearOptions();
-    tomSelectInstance.settings.placeholder = 'Refreshing...';
-    tomSelectInstance.refreshOptions(false);
-    tomSelectInstance.disable();
+    choicesInstance.disable();
+    choicesInstance.clearStore();
+    choicesInstance.setChoices([{ value: '', label: 'Refreshing...', disabled: true }], 'value', 'label', true);
     updateStartChatButtonState();
 
     try {
         const url = `/api/chats?backend=${backend}`;
         const data = await makeApiRequest(url, { method: 'GET' }, config.timeouts.loadChats, refreshChatsLink, 'Refreshing...', 'chats');
         
+        choicesInstance.clearStore();
         if (data && data.length > 0) {
-            data.forEach(chat => {
-                tomSelectInstance.addOption({
-                    value: chat.id,
-                    text: `${chat.title} (${chat.type})`
-                });
-            });
-            tomSelectInstance.settings.placeholder = 'Select or search for a chat...';
-            tomSelectInstance.enable();
+            const chatOptions = data.map(chat => ({
+                value: chat.id,
+                label: `${chat.title} (${chat.type})`
+            }));
+            choicesInstance.setChoices(chatOptions, 'value', 'label', false);
+            choicesInstance.enable();
             if(lastUpdatedTime) lastUpdatedTime.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
         } else {
-            tomSelectInstance.settings.placeholder = 'No chats found';
+            choicesInstance.setChoices([{ value: '', label: 'No chats found', disabled: true }], 'value', 'label', true);
         }
         appState.chatListStatus[backend] = 'loaded';
-        tomSelectInstance.refreshOptions(false);
 
     } catch(error) {
         if (chatLoadingError) chatLoadingError.textContent = error.message || 'Failed to load chats.';
-        tomSelectInstance.settings.placeholder = 'Failed to load. Click "Refresh List".';
-        tomSelectInstance.refreshOptions(false);
+        choicesInstance.setChoices([{ value: '', label: 'Failed to load. Click "Refresh List".', disabled: true }], 'value', 'label', true);
         appState.chatListStatus[backend] = 'unloaded';
     } finally {
         updateStartChatButtonState();
@@ -498,11 +484,11 @@ async function callChatApi(message = null) {
         const [provider, modelName] = selectedModel.split('_PROVIDER_SEPARATOR_');
 
         const requestBody = {
-            chatId: tomSelectInstance.getValue(),
+            chatId: choicesInstance.getValue(true),
             provider: provider,
             modelName: modelName,
-            startDate: $('#dateRangePicker').data('daterangepicker').startDate.format('YYYY-MM-DD'),
-            endDate: $('#dateRangePicker').data('daterangepicker').endDate.format('YYYY-MM-DD'),
+            startDate: document.getElementById('dateRangePicker')._flatpickr.selectedDates[0].toISOString().split('T')[0],
+            endDate: document.getElementById('dateRangePicker')._flatpickr.selectedDates[1].toISOString().split('T')[0],
             enableCaching: cacheChatsToggle.checked,
             conversation: appState.conversation,
         };
@@ -615,9 +601,9 @@ async function handleDownloadChat() {
     setLoadingState(downloadChatButton, true, 'Downloading...');
     try {
         const requestBody = {
-            chatId: tomSelectInstance.getValue(),
-            startDate: $('#dateRangePicker').data('daterangepicker').startDate.format('YYYY-MM-DD'),
-            endDate: $('#dateRangePicker').data('daterangepicker').endDate.format('YYYY-MM-DD'),
+            chatId: choicesInstance.getValue(true),
+            startDate: document.getElementById('dateRangePicker')._flatpickr.selectedDates[0].toISOString().split('T')[0],
+            endDate: document.getElementById('dateRangePicker')._flatpickr.selectedDates[1].toISOString().split('T')[0],
             enableCaching: cacheChatsToggle.checked,
             format: downloadFormat.value
         };
@@ -665,8 +651,16 @@ async function handleDownloadChat() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    function closeMobileMenu() {
+        if (mainContainer.classList.contains('mobile-menu-open')) {
+            mainContainer.classList.remove('mobile-menu-open');
+            toggleLhsButton.innerHTML = '&#9776;';
+        }
+    }
+
     if (startChatButton) {
         startChatButton.addEventListener('click', () => {
+            closeMobileMenu();
             if (appState.conversation.length > 0) {
                 if (!confirm("You have an ongoing conversation. Starting a new chat will clear the current conversation. Continue?")) {
                     return;
@@ -748,13 +742,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     if (chatSelect) {
-        tomSelectInstance = new TomSelect(chatSelect, {
-            create: false,
-            placeholder: 'Select or search for a chat...',
-            theme: 'bootstrap5'
+        choicesInstance = new Choices(chatSelect, {
+            searchEnabled: true,
+            itemSelectText: '',
+            removeItemButton: true,
+            shouldSort: false,
+            searchPlaceholderValue: "Search for a chat...",
         });
-        tomSelectInstance.disable();
-        tomSelectInstance.on('change',() => {
+        choicesInstance.disable();
+        chatSelect.addEventListener('change', () => {
             appState.conversation = [];
             if (chatWindow) chatWindow.innerHTML = '';
             if (conversationalChatSection) conversationalChatSection.style.display = 'none';
@@ -769,7 +765,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     
-    initializeDateRangePicker();
+    initializeFlatpickr();
 
     if (cacheChatsToggle) {
         const saved = localStorage.getItem(CACHE_CHATS_KEY);
@@ -813,34 +809,64 @@ document.addEventListener('DOMContentLoaded', () => {
     if (manageBotsButton) manageBotsButton.addEventListener('click', () => showSection('botManagementSection'));
     if (backToChatsButton) backToChatsButton.addEventListener('click', () => showSection('chatSection'));
     if (registerBotButton) registerBotButton.addEventListener('click', handleRegisterBot);
+    function updateToggleButton() {
+        const isMobile = window.innerWidth <= 1024;
+        if (isMobile) {
+            // On mobile, the button is for opening/closing the slide-out menu
+            if (mainContainer.classList.contains('mobile-menu-open')) {
+                toggleLhsButton.innerHTML = '&times;'; // "X" to close
+                toggleLhsButton.title = 'Close menu';
+            } else {
+                toggleLhsButton.innerHTML = '&#9776;'; // Hamburger
+                toggleLhsButton.title = 'Open menu';
+            }
+        } else {
+            // On desktop, the button is for collapsing/expanding the sidebar
+            if (mainContainer.classList.contains('lhs-collapsed')) {
+                toggleLhsButton.innerHTML = '&rarr;'; // Right arrow
+                toggleLhsButton.title = 'Show sidebar';
+            } else {
+                toggleLhsButton.innerHTML = '&larr;'; // Left arrow
+                toggleLhsButton.title = 'Hide sidebar';
+            }
+        }
+    }
     if (toggleLhsButton && mainContainer) {
         toggleLhsButton.addEventListener('click', () => {
             const isMobile = window.innerWidth <= 1024;
             if (isMobile) {
                 mainContainer.classList.toggle('mobile-menu-open');
-                if (mainContainer.classList.contains('mobile-menu-open')) {
-                    toggleLhsButton.innerHTML = '&times;';
-                } else {
-                    toggleLhsButton.innerHTML = '&#9776;';
-                }
             } else {
                 mainContainer.classList.toggle('lhs-collapsed');
-                if (mainContainer.classList.contains('lhs-collapsed')) {
-                    toggleLhsButton.innerHTML = '&rarr;';
-                    toggleLhsButton.title = 'Show sidebar';
-                } else {
-                    toggleLhsButton.innerHTML = '&larr;';
-                    toggleLhsButton.title = 'Hide sidebar';
-                }
             }
+            updateToggleButton(); // Update icon after action
         });
+
+        window.addEventListener('resize', updateToggleButton); // Update on resize
+        updateToggleButton(); // Initial state
     }
 
     if(mobileMenuOverlay) {
-        mobileMenuOverlay.addEventListener('click', () => {
-            mainContainer.classList.remove('mobile-menu-open');
-            toggleLhsButton.innerHTML = '&#9776;';
+        mobileMenuOverlay.addEventListener('click', closeMobileMenu);
+    }
+
+    if (themeCheckbox) {
+        themeCheckbox.addEventListener('change', () => {
+            if (themeCheckbox.checked) {
+                document.body.classList.add('dark-theme');
+                localStorage.setItem('theme', 'dark-theme');
+            } else {
+                document.body.classList.remove('dark-theme');
+                localStorage.setItem('theme', 'light-theme');
+            }
         });
+
+        // Apply saved theme on load
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark-theme') {
+            document.body.classList.add('dark-theme');
+            themeCheckbox.checked = true;
+        }
     }
 });
 

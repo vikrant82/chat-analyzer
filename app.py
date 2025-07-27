@@ -296,7 +296,7 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
         )
         if not messages_list:
             async def empty_message_stream():
-                yield "No messages found in the selected date range. Please select a different range."
+                yield f"data: {json.dumps({'type': 'content', 'chunk': 'No messages found in the selected date range. Please select a different range.'})}\n\n"
             return StreamingResponse(empty_message_stream(), media_type="text/event-stream")
         
         # Format messages with thread context
