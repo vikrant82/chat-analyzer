@@ -33,7 +33,7 @@ The application features a robust caching system to ensure fast, repeated analys
     -   Always fetches fresh data for "today" to ensure summaries are up-to-date.
 -   **User-Friendly Interface**:
     -   **Searchable Chat List**: Quickly find the chat you're looking for.
-    -   **Modern Date Picker**: Includes pre-defined ranges like "Last 7 Days".
+    -   **Modern Date Picker**: A modern, dark-theme friendly date picker.
     -   Simple, step-by-step process: Login -> Select Chat -> Analyze.
     -   **Bot Management UI**: A simple interface to register, view, and delete your bots.
     -   **Automated Webhook Setup**: Automatically registers the necessary webhook with Webex when you provide a public URL, simplifying setup.

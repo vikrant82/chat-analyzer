@@ -1,3 +1,26 @@
+# Last Session Summary (2025-07-27)
+
+In these sessions, we completed a comprehensive overhaul of the user interface to enhance user experience, with a primary focus on dark mode improvements, mobile usability, and bug fixes.
+
+### Key Accomplishments:
+
+- **UI/UX Enhancements**:
+    - Refactored the "Switch Service" feature into a dropdown and introduced a collapsible sidebar for desktop.
+    - Developed a complete dark theme with a toggle switch, ensuring consistent dark mode experience across components.
+    - Implemented a mobile-friendly sliding overlay menu and improved mobile UX by auto-closing the menu on chat start.
+    - Added a checkbox to show/hide the "Optional: Start with a specific question" field.
+
+- **Component & Library Upgrades**:
+    - Replaced the `Tom-Select` library with `Choices.js` to fix dropdown styling and search functionality.
+    - Replaced the `daterangepicker` date picker with `flatpickr` to address dark mode styling issues.
+
+- **Bug Fixes**:
+    - Resolved bugs causing the mobile menu button to misbehave and dropdowns to flash white on refresh, particularly in dark mode.
+    - Fixed a regression where the "Start Chat" button was incorrectly enabled when no chat was selected.
+    - Addressed backend behavior to send a proper response when no messages are found for a date range, preventing empty chat bubbles.
+    - Corrected various dark theme styling inconsistencies for seamless UX.
+
+---
 # Last Session Summary (2025-07-24)
 
 In this session, we implemented support for threaded conversations in Webex.
