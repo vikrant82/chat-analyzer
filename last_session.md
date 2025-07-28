@@ -47,4 +47,4 @@ In this session, we implemented the incoming message handling for the Telegram b
 *   **Updated Frontend**: We made some minor updates to the frontend to support the new Telegram bot functionality.
 
 ## Next Steps:
-*   Ask the user.
+*   Next we will work on project plan. 
