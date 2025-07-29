@@ -60,6 +60,11 @@ class WebexClient:
             "Content-Type": "application/json"
         }
 
+    def get_auth_headers(self) -> Dict[str, str]:
+        """Returns just the authorization headers, useful for external HTTP clients."""
+        access_token = self.get_access_token()
+        return {"Authorization": f"Bearer {access_token}"}
+
     def get_authorization_url(self) -> str:
         """Constructs the URL for the user to grant consent."""
         auth_url = "https://webexapis.com/v1/authorize"
@@ -73,6 +78,8 @@ class WebexClient:
         # Use requests to properly encode params
         req = requests.Request('GET', auth_url, params=params)
         prep = req.prepare()
+        if prep.url is None:
+            raise ValueError("Failed to construct Webex authorization URL")
         return prep.url
 
     def _is_token_expired(self) -> bool:

@@ -31,8 +31,8 @@ class LLMClient(ABC):
     async def call_conversational(
         self,
         model_name: str,
-        conversation: List[Dict[str, str]],
-        original_messages: Optional[str] = None
+        conversation: List[Dict[str, Any]],
+        original_messages: Optional[List[Dict[str, Any]]] = None
     ) -> AsyncGenerator[str, None]:
         """
         Calls the LLM with a streaming response for a conversational query.

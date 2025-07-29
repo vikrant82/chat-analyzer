@@ -5,7 +5,8 @@
    - **User:** Developers and end-users who want to quickly understand the content of a chat conversation.
    - **Core Functionality:**
      - **Webex Bot Integration**: Allows users to register a Webex bot and invoke the chat analyzer from any Webex space by mentioning the bot.
-           - **Webex Threading**: The application now correctly handles threaded conversations in Webex. Messages are grouped by thread, and the context is formatted to preserve the conversational flow of the threads.
+           - **Webex Threading**: The application correctly handles threaded conversations in Webex. Messages are grouped by thread, and the context is formatted to preserve the conversational flow.
+           - **Webex Image Support**: The application can now process and include images from Webex chats in its analysis, passing them to the multimodal AI model.
      - **Telegram Bot Integration**: Allows users to register a Telegram bot and interact with it directly to get summaries of any chat.
      - **/aimode for Telegram Bot**: A feature that enables a conversational AI mode, allowing users to ask direct questions to the AI about the chat history.
 
@@ -53,6 +54,16 @@
      - The `call_conversational` method in the AI logic dynamically selects a system prompt.
      - If the `original_messages` parameter is provided, it uses the `UNIFIED_SYSTEM_PROMPT` for summarization.
      - Otherwise, it uses the `GENERAL_AI_SYSTEM_PROMPT` for conversational AI.
+   - **Caching Architecture:**
+     - The application employs a two-layer caching strategy to optimize performance and reduce API calls.
+       - **Layer 1: File-Based Cache (Retrieval Cache):**
+         - **Purpose:** To store the raw, unprocessed message data fetched from platform APIs (Telegram/Webex). This minimizes direct API calls to external services.
+         - **Location:** `cache/<platform>/<user_id>/<chat_id>/<date>.json`
+         - **Logic:** This cache is only used for days in the past. It correctly identifies that today's messages are mutable and always fetches them live, preventing the caching of incomplete or changing data.
+       - **Layer 2: In-Memory Cache (Processing Cache):**
+         - **Purpose:** To store the fully processed and formatted message data that is ready to be sent to the AI model. This avoids the CPU cost of repeatedly formatting the same data.
+         - **Location:** A global dictionary in `app.py`.
+         - **Logic:** This cache is keyed by the session token and the exact date range of the request. It is only used if the requested date range does *not* include the current day, ensuring that analyses involving today's data are always performed on the freshest information.
 
 **6. API & External Interactions**
    - **Internal APIs:**

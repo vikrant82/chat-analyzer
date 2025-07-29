@@ -1,7 +1,9 @@
 import os
-from typing import List, Dict, Any
+import base64
+import httpx
+from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
-from .base_client import ChatClient, Chat, Message, User
+from .base_client import ChatClient, Chat, Message, User, Attachment
 from WebexClient import WebexClient
 import json
 import logging
@@ -41,6 +43,30 @@ class WebexClientImpl(ChatClient):
             scopes=WEBEX_CONFIG.get('scopes', []),
             token_storage_path=TOKEN_STORAGE_PATH
         )
+        self.http_client = httpx.AsyncClient()
+
+
+    async def _download_and_encode_file(self, file_url: str) -> Optional[Attachment]:
+        """Downloads a file from a URL and returns it as a Base64 encoded string."""
+        try:
+            headers = self.api.get_auth_headers()
+            response = await self.http_client.get(file_url, headers=headers)
+            response.raise_for_status()
+            
+            content_type = response.headers.get('Content-Type', 'application/octet-stream')
+            # We only want to process images for now
+            if not content_type.startswith('image/'):
+                logger.info(f"Skipping non-image file: {content_type}")
+                return None
+
+            encoded_data = base64.b64encode(response.content).decode('utf-8')
+            return Attachment(mime_type=content_type, data=encoded_data)
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Failed to download file from {file_url}: {e.response.status_code} {e.response.text}")
+            return None
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while downloading {file_url}: {e}", exc_info=True)
+            return None
 
     def _get_cache_path(self, user_identifier: str, chat_id: str, day: datetime) -> str:
         safe_user_id = ''.join(filter(str.isalnum, user_identifier))
@@ -143,7 +169,8 @@ class WebexClientImpl(ChatClient):
 
             grouped_by_day = {}
             for msg_raw in all_fetched_raw_messages:
-                if not msg_raw.get('text'):
+                # A message must have text OR files to be considered
+                if not msg_raw.get('text') and not msg_raw.get('files'):
                     continue
                 
                 msg_dt = datetime.fromisoformat(msg_raw['created'].replace('Z', '+00:00'))
@@ -153,15 +180,25 @@ class WebexClientImpl(ChatClient):
                     if msg_day not in grouped_by_day:
                         grouped_by_day[msg_day] = []
                     
-                    author = User(id=msg_raw.get('personId', 'unknown'), name=msg_raw.get('personEmail', 'Unknown User'))
-                    message = Message(
-                        id=msg_raw['id'],
-                        text=msg_raw['text'],
-                        author=author,
-                        timestamp=msg_raw['created'],
-                        thread_id=msg_raw.get('parentId')
-                    )
-                    grouped_by_day[msg_day].append(message)
+                    attachments = []
+                    if msg_raw.get('files'):
+                        for file_url in msg_raw['files']:
+                            attachment = await self._download_and_encode_file(file_url)
+                            if attachment:
+                                attachments.append(attachment)
+
+                    # Only create a message if it has text or a successfully processed attachment
+                    if msg_raw.get('text') or attachments:
+                        author = User(id=msg_raw.get('personId', 'unknown'), name=msg_raw.get('personEmail', 'Unknown User'))
+                        message = Message(
+                            id=msg_raw['id'],
+                            text=msg_raw.get('text'),
+                            author=author,
+                            timestamp=msg_raw['created'],
+                            thread_id=msg_raw.get('parentId'),
+                            attachments=attachments if attachments else None
+                        )
+                        grouped_by_day[msg_day].append(message)
 
             for day_to_cache in dates_to_fetch_from_api:
                 messages_for_this_day = grouped_by_day.get(day_to_cache, [])

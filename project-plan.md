@@ -125,13 +125,13 @@ This project is structured into three sequential sprints, focusing on delivering
     
 - **Dependencies:** Docker environment; Task 1.1 complete.
     
-- **Description:** Migrate all ephemeral and session-related state from in-memory variables and the interim encrypted file to a centralized Redis instance.
+- **Description:** Migrate all ephemeral and session-related state from in-memory variables and the interim encrypted file to a centralized Redis instance. This includes refactoring the current two-layer caching system to use Redis, providing a unified, high-performance cache for both raw and processed message data.
     
 - **Acceptance Criteria:**
     
     1.  **Setup:** Redis is added to `docker-compose.yaml` and `redis-py` is added to `requirements.txt`.
         
-    2.  **Migration:** All global variables (`message_cache`, `chat_modes`) and the encrypted credential file are replaced with Redis data structures.
+    2.  **Migration:** The file-based cache and all global state variables (`message_cache`, `chat_modes`) and the encrypted credential file are replaced with Redis data structures.
         
     3.  **Revocation:** The refresh token logic is enhanced to use a Redis allowlist, enabling immediate session revocation upon logout.
         
@@ -189,6 +189,21 @@ This project is structured into three sequential sprints, focusing on delivering
     - Frontend functionality remains identical.
         
 
+#### Task 3.3: Optimize Caching Strategy
+
+- **Owner:** Vikrant
+    
+- **Estimated Effort:** 1 Day
+    
+- **Dependencies:** Task 2.1 (Redis Integration)
+    
+- **Description:** Implement advanced caching patterns to further improve performance and cache hit ratio.
+    
+- **Acceptance Criteria:**
+    
+    - The Redis cache logic is updated to use more granular, per-day keys for processed data, improving hit rates for overlapping date ranges.
+        
+    - (Optional) A background worker is implemented to proactively warm the cache for popular chats during off-peak hours.
 ## 4\. Risk Assessment
 
 |     |     |     |     |     |

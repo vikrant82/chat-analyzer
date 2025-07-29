@@ -62,8 +62,8 @@ class OpenAICompatibleLLM(LLMClient):
     async def call_conversational(
         self,
         model_name: str,
-        conversation: List[Dict[str, str]],
-        original_messages: Optional[str] = None
+        conversation: List[Dict[str, Any]],
+        original_messages: Optional[List[Dict[str, Any]]] = None
     ) -> AsyncGenerator[str, None]:
         if model_name not in self.available_models:
             logger.error(f"Attempted to use unconfigured OpenAI-compatible model: {model_name}")
@@ -78,16 +78,19 @@ class OpenAICompatibleLLM(LLMClient):
         chat_completions_url = self.url
         logger.info(f"Streaming conversational response from OpenAI-compatible endpoint ({model_name})...")
 
+        # --- Message Formatting ---
+        messages = []
         if original_messages:
             # Summarizer mode
-            system_prompt = UNIFIED_SYSTEM_PROMPT
-            user_prompt = f"Here is the chat history:\n---\n{original_messages}\n---"
-            messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}] + conversation
+            messages.append({"role": "system", "content": UNIFIED_SYSTEM_PROMPT})
+            messages.extend(self._format_messages(original_messages))
+            # Add the user's final query
+            messages.extend(self._format_messages(conversation))
         else:
             # AI mode
-            system_prompt = GENERAL_AI_SYSTEM_PROMPT
-            messages = [{"role": "system", "content": system_prompt}] + conversation
-
+            messages.append({"role": "system", "content": GENERAL_AI_SYSTEM_PROMPT})
+            messages.extend(self._format_messages(conversation))
+        
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -127,3 +130,39 @@ class OpenAICompatibleLLM(LLMClient):
         except Exception as e:
             logger.error(f"Error streaming from OpenAI-compatible endpoint ({model_name}): {e}", exc_info=True)
             yield f"\n\n**Error:** Failed to get a streaming response from the OpenAI-compatible service. Details: {str(e)}"
+
+    def _format_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Formats our internal message structure into the one expected by OpenAI-compatible APIs.
+        """
+        formatted = []
+        for msg in messages:
+            role = msg.get("role")
+            content = msg.get("content")
+
+            if not role or not content:
+                continue
+
+            if isinstance(content, str):
+                # Simple text message
+                formatted.append({"role": role, "content": content})
+            elif isinstance(content, list):
+                # This is a multi-part message (text + images)
+                openai_parts = []
+                for part in content:
+                    if part.get("type") == "text":
+                        openai_parts.append({"type": "text", "text": part.get("text", "")})
+                    elif part.get("type") == "image":
+                        source = part.get("source", {})
+                        media_type = source.get("media_type")
+                        data = source.get("data")
+                        if media_type and data:
+                            openai_parts.append({
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:{media_type};base64,{data}"
+                                }
+                            })
+                if openai_parts:
+                    formatted.append({"role": role, "content": openai_parts})
+        return formatted

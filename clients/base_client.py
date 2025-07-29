@@ -12,12 +12,17 @@ class Chat(BaseModel):
     title: str
     type: str  # e.g., 'private', 'group'
 
+class Attachment(BaseModel):
+    mime_type: str
+    data: str # Base64 encoded
+
 class Message(BaseModel):
     id: str
-    text: str
+    text: Optional[str] = None
     author: User
     timestamp: str # ISO 8601 format
     thread_id: Optional[str] = None
+    attachments: Optional[List[Attachment]] = None
 
 # --- The Abstract Base Class ---
 class ChatClient(ABC):

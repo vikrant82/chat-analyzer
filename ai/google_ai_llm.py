@@ -47,8 +47,8 @@ class GoogleAILLM(LLMClient):
     async def call_conversational(
         self,
         model_name: str,
-        conversation: List[Dict[str, str]],
-        original_messages: Optional[str] = None
+        conversation: List[Dict[str, Any]],
+        original_messages: Optional[List[Dict[str, Any]]] = None
     ) -> AsyncGenerator[str, None]:
         if model_name not in self.available_models:
             logger.error(f"Attempted to use unconfigured or filtered Google AI model: {model_name}")
@@ -57,40 +57,65 @@ class GoogleAILLM(LLMClient):
 
         logger.info(f"Streaming conversational response from Google AI ({model_name})...")
         try:
+            history = []
+            system_instruction = None
+
             if original_messages:
-                # Summarizer Mode
-                system_prompt = UNIFIED_SYSTEM_PROMPT.format(text_to_summarize=original_messages)
-                user_query = conversation[-1]['content'] if conversation else ""
-                full_prompt = f"{system_prompt}\n\n{user_query}"
-                
-                model = genai.GenerativeModel(f"models/{model_name}")
-                response_stream = await model.generate_content_async(full_prompt, stream=True)
+                # Summarizer Mode: The original_messages now contain the full, structured history
+                system_instruction = UNIFIED_SYSTEM_PROMPT
+                history.extend(original_messages)
+                # Add the user's latest query from the conversation object
+                if conversation:
+                    history.append(conversation[-1])
             else:
-                # AI Mode
-                model = genai.GenerativeModel(
-                    f"models/{model_name}",
-                    system_instruction=GENERAL_AI_SYSTEM_PROMPT
-                )
+                # AI Mode: The conversation object contains the history
+                system_instruction = GENERAL_AI_SYSTEM_PROMPT
+                history.extend(conversation)
+
+            # Convert our standard format to Google's format
+            google_history = []
+            for msg in history:
+                role = "model" if msg["role"] == "assistant" else msg["role"]
                 
-                history = []
-                for msg in conversation:
-                    role = "model" if msg["role"] == "assistant" else msg["role"]
-                    history.append({'role': role, 'parts': [{'text': msg['content']}]})
-                
-                last_message_parts = history.pop()['parts'] if history else []
-                
-                model_with_history = model.start_chat(history=history)
-                response_stream = await model_with_history.send_message_async(
-                    last_message_parts,
-                    stream=True
-                )
+                # The content can be a list of parts (text/image) or a simple string
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    google_history.append({'role': role, 'parts': [{'text': content}]})
+                elif isinstance(content, list):
+                    parts = []
+                    for part in content:
+                        if part['type'] == 'text':
+                            parts.append({'text': part['text']})
+                        elif part['type'] == 'image':
+                            source = part['source']
+                            parts.append({
+                                'inline_data': {
+                                    'mime_type': source['media_type'],
+                                    'data': source['data']
+                                }
+                            })
+                    google_history.append({'role': role, 'parts': parts})
+
+            model = genai.GenerativeModel(
+                f"models/{model_name}",
+                system_instruction=system_instruction
+            )
+            
+            # The last message is sent as the new content, the rest is history
+            last_message_parts = google_history.pop()['parts'] if google_history else []
+            
+            chat = model.start_chat(history=google_history)
+            response_stream = await chat.send_message_async(
+                content=last_message_parts,
+                stream=True
+            )
 
             async for chunk in response_stream:
                 try:
                     if chunk.text:
                         yield chunk.text
                 except ValueError:
-                    logger.warning(f"A chunk was blocked by Google AI safety settings. Full response may be incomplete.")
+                    logger.warning("A chunk was blocked by Google AI safety settings.")
                     yield "[Content-Blocked-By-AI]"
                 except Exception as e:
                     logger.error(f"Error processing a streaming chunk from Google AI: {e}", exc_info=True)

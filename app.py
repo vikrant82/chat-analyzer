@@ -78,8 +78,8 @@ class ChatMessage(BaseModel):
     startDate: str
     endDate: str
     enableCaching: bool
-    conversation: List[Dict[str, str]]
-    originalMessages: Optional[str] = None # This is no longer sent from the client, but kept for compatibility
+    conversation: List[Dict[str, Any]] # Can now contain complex content
+    originalMessages: Optional[List[Dict[str, Any]]] = None # To hold the structured message data
 
 class DownloadRequest(BaseModel):
     chatId: str
@@ -287,9 +287,28 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
         raise HTTPException(status_code=401, detail="Could not find session token for user.")
 
     cache_key = f"{token}_{req.chatId}_{req.startDate}_{req.endDate}"
+    
+    # --- Cache Invalidation for Today's Date ---
+    # Parse end date and compare with today's date to decide if caching is safe.
+    try:
+        end_date_dt = datetime.strptime(req.endDate, '%Y-%m-%d').date()
+        today_dt = datetime.now(timezone.utc).date()
+        use_cache = end_date_dt < today_dt
+    except ValueError:
+        logger.warning(f"Could not parse endDate '{req.endDate}'. Disabling cache for this request.")
+        use_cache = False
 
-    if cache_key not in message_cache:
-        logger.info(f"Cache MISS for conversation key: {cache_key}. Fetching messages.")
+    if use_cache and cache_key in message_cache:
+        logger.info(f"Cache HIT for conversation key: {cache_key}. Using cached messages.")
+        original_messages_structured = json.loads(message_cache[cache_key])
+        # This is an approximation, but good enough for the UI
+        message_count = len(original_messages_structured)
+    else:
+        if not use_cache:
+            logger.info(f"Date range includes today. Bypassing in-memory cache for key: {cache_key}")
+        else:
+            logger.info(f"Cache MISS for conversation key: {cache_key}. Fetching messages.")
+        
         chat_client = get_client(backend)
         messages_list: List[StandardMessage] = await chat_client.get_messages(
             user_id, req.chatId, req.startDate, req.endDate, enable_caching=req.enableCaching
@@ -299,37 +318,13 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
                 yield f"data: {json.dumps({'type': 'content', 'chunk': 'No messages found in the selected date range. Please select a different range.'})}\n\n"
             return StreamingResponse(empty_message_stream(), media_type="text/event-stream")
         
-        # Format messages with thread context
-        formatted_parts = []
-        in_thread = False
-        for i, msg in enumerate(messages_list):
-            is_reply = msg.thread_id is not None
-            
-            # Check if a thread is starting
-            if is_reply and not in_thread:
-                formatted_parts.append("\n--- Thread Started ---")
-                in_thread = True
-            
-            # Check if a thread is ending
-            if not is_reply and in_thread:
-                formatted_parts.append("--- Thread Ended ---\n")
-                in_thread = False
-
-            # Format the message itself
-            prefix = "    " if is_reply else ""
-            formatted_parts.append(f"{prefix}[{msg.author.name} at {msg.timestamp}]: {msg.text}")
-
-        # If the last message was in a thread, close it
-        if in_thread:
-            formatted_parts.append("--- Thread Ended ---")
-
-        original_messages = "\n".join(formatted_parts)
-        message_cache[cache_key] = original_messages
+        original_messages_structured = _format_messages_for_llm(messages_list)
         message_count = len(messages_list)
-    else:
-        logger.info(f"Cache HIT for conversation key: {cache_key}. Using cached messages.")
-        original_messages = message_cache[cache_key]
-        message_count = len(original_messages.split('\n\n'))
+        
+        # Only cache the result if the date range does not include today
+        if use_cache:
+            logger.info(f"Storing result in cache for key: {cache_key}")
+            message_cache[cache_key] = json.dumps(original_messages_structured)
 
     current_conversation = list(req.conversation)
     
@@ -340,15 +335,97 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
             stream = llm_client.call_conversational(
                 req.modelName,
                 current_conversation,
-                original_messages
+                original_messages_structured
             )
             async for chunk in stream:
                 yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
         except Exception as e:
             logger.error(f"Unhandled error in conversational streaming generator: {e}", exc_info=True)
-            yield f"\n\n**Fatal Error:** An unexpected error occurred during the analysis stream. Please check the server logs."
+            yield f"data: {json.dumps({'type': 'error', 'message': f'An unexpected error occurred: {e}'})}\n\n"
 
     return StreamingResponse(stream_generator(), media_type="text/event-stream")
+
+def _format_messages_for_llm(messages: List[StandardMessage]) -> List[Dict[str, Any]]:
+    """
+    Formats a list of StandardMessage objects into a structured format for the LLM,
+    handling text, attachments, and threading context.
+    """
+    formatted_parts = []
+    in_thread = False
+    
+    for msg in messages:
+        is_reply = msg.thread_id is not None
+        
+        # --- Handle Thread Markers ---
+        if is_reply and not in_thread:
+            formatted_parts.append({"type": "text", "text": "\n--- Thread Started ---"})
+            in_thread = True
+        elif not is_reply and in_thread:
+            formatted_parts.append({"type": "text", "text": "--- Thread Ended ---\n"})
+            in_thread = False
+
+        # --- Construct the Message Content ---
+        message_content = []
+        
+        # Add a text part for the author and timestamp header
+        prefix = "    " if is_reply else ""
+        header = f"{prefix}[{msg.author.name} at {msg.timestamp}]:"
+        message_content.append({"type": "text", "text": header})
+
+        # Add the main text of the message, if it exists
+        if msg.text:
+            message_content.append({"type": "text", "text": f" {msg.text}"})
+
+        # Add any image attachments
+        if msg.attachments:
+            for attachment in msg.attachments:
+                message_content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": attachment.mime_type,
+                        "data": attachment.data,
+                    },
+                })
+        
+        # The role is always 'user' as this represents the chat history
+        formatted_parts.append({"role": "user", "content": message_content})
+
+    # If the last message was in a thread, close it
+    if in_thread:
+        formatted_parts.append({"type": "text", "text": "--- Thread Ended ---"})
+        
+    # This is a simplification. We need to combine consecutive text parts for some models.
+    # For now, we will return the list of parts and let the LLM client handle it.
+    # A better approach would be to create a single "user" message with multiple content parts.
+    
+    final_messages = []
+    current_user_parts = []
+
+    for part in formatted_parts:
+        if part.get('role') == 'user':
+            if current_user_parts:
+                 # Combine consecutive text parts within a single user message
+                combined_text = "".join(p['text'] for p in current_user_parts if p['type'] == 'text')
+                final_content = [{"type": "text", "text": combined_text}]
+                # Add images
+                final_content.extend([p for p in current_user_parts if p['type'] == 'image'])
+                final_messages.append({"role": "user", "content": final_content})
+
+            current_user_parts = part['content']
+        elif part['type'] == 'text': # Thread markers
+             current_user_parts.append(part)
+
+
+    # Add the last user message
+    if current_user_parts:
+        combined_text = "".join(p['text'] for p in current_user_parts if p['type'] == 'text')
+        final_content = [{"type": "text", "text": combined_text}]
+        final_content.extend([p for p in current_user_parts if p['type'] == 'image'])
+        final_messages.append({"role": "user", "content": final_content})
+
+    return final_messages
+
 
 def _create_pdf(text: str, chat_id: str) -> BytesIO:
     pdf = FPDF()
@@ -612,7 +689,7 @@ async def _process_bot_command(bot_client: Any, webex_client: Any, active_user_i
             bot_client.post_message(room_id=room_id, text="No messages found in the specified date range.")
             return
 
-        formatted_messages = "\n\n".join(f"[{msg.author.name} at {msg.timestamp}]: {msg.text}" for msg in messages_list)
+        formatted_messages_structured = _format_messages_for_llm(messages_list)
 
         llm_provider = next(iter(llm_clients))
         llm_client = llm_clients[llm_provider]
@@ -621,7 +698,7 @@ async def _process_bot_command(bot_client: Any, webex_client: Any, active_user_i
             raise Exception("No default AI model configured for the bot.")
 
         conversation_history = [{"role": "user", "content": query}]
-        stream = llm_client.call_conversational(model_name, conversation_history, formatted_messages)
+        stream = await llm_client.call_conversational(model_name, conversation_history, formatted_messages_structured)
 
         ai_response = ""
         async for chunk in stream:
@@ -709,7 +786,7 @@ async def _handle_summarizer_mode(bot_client: Any, telegram_client: Any, active_
             await bot_client.send_message(user_chat_id, "No messages found in the specified date range.")
             return
 
-        formatted_messages = "\n\n".join(f"[{msg.author.name} at {msg.timestamp}]: {msg.text}" for msg in messages_list)
+        formatted_messages_structured = _format_messages_for_llm(messages_list)
 
         llm_provider = next(iter(llm_clients))
         llm_client = llm_clients[llm_provider]
@@ -718,7 +795,7 @@ async def _handle_summarizer_mode(bot_client: Any, telegram_client: Any, active_
             raise Exception("No default AI model configured for the bot.")
 
         conversation_history = [{"role": "user", "content": query}]
-        stream = llm_client.call_conversational(model_name, conversation_history, formatted_messages)
+        stream = llm_client.call_conversational(model_name, conversation_history, formatted_messages_structured)
 
         ai_response = ""
         async for chunk in stream:
