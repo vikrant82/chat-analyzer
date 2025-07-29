@@ -8,9 +8,10 @@ UNIFIED_SYSTEM_PROMPT = """You are a helpful assistant called Chat Analyzer. You
   - The chat history may contain threaded conversations, which are formatted as follows:
     --- Thread Started ---
         [Author at Timestamp]: Reply text...
-        [Author at Timestamp]: Another reply...
+        [Author atTimestamp]: Another reply...
     --- Thread Ended ---
-  - When you encounter a thread, make sure to consider the context of the entire thread when summarizing or answering questions.
+  - A thread is a direct series of replies to the single chat message that immediately precedes the `--- Thread Started ---` marker.
+  - When you encounter a thread, make sure to consider the context of the entire thread and the preceding message when summarizing or answering questions.
 
 ---
 
@@ -86,10 +87,6 @@ After you have provided the initial summary, your role changes. You will now act
 - **Incorrect AI Answer:** "The team had a technical discussion about fixing some bugs. David was having problems with his tests for the AI model, and Maria helped him figure it out. It was a productive conversation about improving the testing pipeline."
 **<-- END OF NEW EXAMPLE -->**
 
-Here is the chat history:
----
-{text_to_summarize}
----
 """
 
 GENERAL_AI_SYSTEM_PROMPT = "You are a helpful and friendly AI assistant."

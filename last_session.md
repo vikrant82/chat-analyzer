@@ -1,3 +1,13 @@
+# Session on Tuesday, July 29, 2025, 8:03 PM UTC
+
+### Key Accomplishments:
+
+*   **Prompt Engineering**: Refined the system prompt in [`ai/prompts.py`](ai/prompts.py) to clarify how threaded conversations are handled, specifying that threads are replies to the immediately preceding message.
+*   **Bug Fixes**:
+    *   Corrected a bug in [`app.py`](app.py) where the conversation history was using the non-standard `model` role for the AI's responses. This has been changed to the standard `assistant` role for API compatibility.
+    *   Fixed a logic error in [`ai/openai_compatible_llm.py`](ai/openai_compatible_llm.py) where the conversation history was being incorrectly merged into the system prompt instead of being passed as a proper message list. This ensures the model receives the correct conversational context.
+
+---
 # Last Session Summary (2025-07-27)
 
 In these sessions, we completed a comprehensive overhaul of the user interface to enhance user experience, with a primary focus on dark mode improvements, mobile usability, and bug fixes.
@@ -47,4 +57,4 @@ In this session, we implemented the incoming message handling for the Telegram b
 *   **Updated Frontend**: We made some minor updates to the frontend to support the new Telegram bot functionality.
 
 ## Next Steps:
-*   Next we will work on project plan. 
+*   Next we will work on project plan.

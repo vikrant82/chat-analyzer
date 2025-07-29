@@ -664,7 +664,7 @@ async def _handle_ai_mode(bot_client: Any, user_chat_id: int, message_text: str)
             ai_response += chunk
         
         # Add the AI's full response to the history
-        history.append({"role": "model", "content": ai_response})
+        history.append({"role": "assistant", "content": ai_response})
         
         # Store the updated history
         conversations[conversation_key] = history

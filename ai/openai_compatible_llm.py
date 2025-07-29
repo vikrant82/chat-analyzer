@@ -80,8 +80,9 @@ class OpenAICompatibleLLM(LLMClient):
 
         if original_messages:
             # Summarizer mode
-            system_prompt = UNIFIED_SYSTEM_PROMPT.format(text_to_summarize=original_messages)
-            messages = [{"role": "system", "content": system_prompt}] + conversation
+            system_prompt = UNIFIED_SYSTEM_PROMPT
+            user_prompt = f"Here is the chat history:\n---\n{original_messages}\n---"
+            messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}] + conversation
         else:
             # AI mode
             system_prompt = GENERAL_AI_SYSTEM_PROMPT
