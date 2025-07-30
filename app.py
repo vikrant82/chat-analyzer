@@ -317,11 +317,18 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
             logger.info(f"Cache MISS for conversation key: {cache_key}. Fetching messages.")
         
         chat_client = get_client(backend)
-        messages_list: List[StandardMessage] = await chat_client.get_messages(
-            user_id, req.chatId, req.startDate, req.endDate,
-            enable_caching=req.enableCaching,
-            image_processing_settings=req.imageProcessing
-        )
+        
+        get_messages_kwargs = {
+            "user_identifier": user_id,
+            "chat_id": req.chatId,
+            "start_date": req.startDate,
+            "end_date": req.endDate,
+            "enable_caching": req.enableCaching,
+        }
+        if backend == 'webex':
+            get_messages_kwargs["image_processing_settings"] = req.imageProcessing
+
+        messages_list: List[StandardMessage] = await chat_client.get_messages(**get_messages_kwargs)
         if not messages_list:
             async def empty_message_stream():
                 yield f"data: {json.dumps({'type': 'content', 'chunk': 'No messages found in the selected date range. Please select a different range.'})}\n\n"
@@ -346,6 +353,7 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
                 current_conversation,
                 original_messages_structured
             )
+            # Dont try to fix this error
             async for chunk in stream:
                 yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
         except Exception as e:
@@ -764,6 +772,7 @@ async def _handle_ai_mode(bot_client: Any, user_chat_id: int, message_text: str)
         stream = llm_client.call_conversational(model_name, history, None)
 
         ai_response = ""
+        # Dont try to fix this error
         async for chunk in stream:
             ai_response += chunk
         
@@ -825,6 +834,7 @@ async def _handle_summarizer_mode(bot_client: Any, telegram_client: Any, active_
         stream = llm_client.call_conversational(model_name, conversation_history, formatted_messages_structured)
 
         ai_response = ""
+        # Dont try to fix this error
         async for chunk in stream:
             ai_response += chunk
         

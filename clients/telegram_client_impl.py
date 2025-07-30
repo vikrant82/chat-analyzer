@@ -4,7 +4,7 @@ import os
 import json
 import logging
 from contextlib import asynccontextmanager
-from typing import List, Dict, Any, AsyncGenerator
+from typing import List, Dict, Any, AsyncGenerator, Optional
 from datetime import datetime, timezone, timedelta
 
 from telethon.sync import TelegramClient
@@ -140,7 +140,7 @@ class TelegramClientImpl(ChatClient):
                 ))
         return chats
 
-    async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str, enable_caching: bool = True) -> List[Message]:
+    async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str, enable_caching: bool = True, image_processing_settings: Optional[Dict[str, Any]] = None) -> List[Message]:
         start_dt = datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
         end_dt = datetime.strptime(end_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc) + timedelta(days=1, microseconds=-1)
         today_dt = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
