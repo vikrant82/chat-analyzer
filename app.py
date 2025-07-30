@@ -321,8 +321,8 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
         get_messages_kwargs = {
             "user_identifier": user_id,
             "chat_id": req.chatId,
-            "start_date": req.startDate,
-            "end_date": req.endDate,
+            "start_date_str": req.startDate,
+            "end_date_str": req.endDate,
             "enable_caching": req.enableCaching,
         }
         if backend == 'webex':
