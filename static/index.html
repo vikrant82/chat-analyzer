@@ -102,6 +102,19 @@
                             <input type="checkbox" id="cacheChatsToggle" checked>
                             <label for="cacheChatsToggle">Enable caching for faster analysis</label>
                         </div>
+                        <details id="imageSettings" class="form-group" style="display: none;">
+                            <summary>Image Processing Options</summary>
+                            <div class="fieldset-content">
+                                <div class="checkbox-group">
+                                    <input type="checkbox" id="imageProcessingToggle" checked>
+                                    <label for="imageProcessingToggle">Analyze images in chat</label>
+                                </div>
+                                <div class="form-group">
+                                    <label for="maxImageSize">Max image size (MB):</label>
+                                    <input type="number" id="maxImageSize" value="10" min="1" max="20">
+                                </div>
+                            </div>
+                        </details>
                         <div class="form-group checkbox-group">
                             <input type="checkbox" id="toggleQuestionCheckbox">
                             <label for="toggleQuestionCheckbox">4. Optional: Start with a specific question</label>

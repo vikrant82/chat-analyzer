@@ -82,8 +82,19 @@ const toggleLhsButton = document.getElementById('toggleLhsButton');
 const mainContainer = document.querySelector('.main-container');
 const mobileMenuOverlay = document.getElementById('mobileMenuOverlay');
 const themeCheckbox = document.getElementById('theme-checkbox');
+const imageSettings = document.getElementById('imageSettings');
+const imageProcessingToggle = document.getElementById('imageProcessingToggle');
+const maxImageSize = document.getElementById('maxImageSize');
 
 // --- Utility Functions ---
+function formatDate(date) {
+    if (!date) return null;
+    const year = date.getFullYear();
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 function setLoadingState(buttonElement, isLoading, loadingText = 'Processing...') {
     if (!buttonElement) return;
     if (isLoading) {
@@ -215,6 +226,7 @@ function showSection(sectionName) {
         if (backendSelectMain) {
             backendSelectMain.value = appState.activeBackend;
         }
+        handleBackendChange(); // Ensure UI elements like image settings are correctly shown/hidden
         if (!appState.modelsLoaded) {
             loadModels();
         }
@@ -246,6 +258,11 @@ function handleBackendChange() {
         const selectedBackend = backendSelect.value;
         telegramLoginForm.style.display = selectedBackend === 'telegram' ? 'block' : 'none';
         webexLoginContainer.style.display = selectedBackend === 'webex' ? 'block' : 'none';
+    }
+    // Also handle the main backend selector
+    if(backendSelectMain) {
+        const selectedBackend = backendSelectMain.value;
+        imageSettings.style.display = selectedBackend === 'webex' ? 'block' : 'none';
     }
 }
 
@@ -487,10 +504,14 @@ async function callChatApi(message = null) {
             chatId: choicesInstance.getValue(true),
             provider: provider,
             modelName: modelName,
-            startDate: document.getElementById('dateRangePicker')._flatpickr.selectedDates[0].toISOString().split('T')[0],
-            endDate: document.getElementById('dateRangePicker')._flatpickr.selectedDates[1].toISOString().split('T')[0],
+            startDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[0]),
+            endDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[1]),
             enableCaching: cacheChatsToggle.checked,
             conversation: appState.conversation,
+            imageProcessing: {
+                enabled: imageProcessingToggle.checked,
+                max_size_bytes: parseInt(maxImageSize.value) * 1024 * 1024,
+            }
         };
         
         if (message) {
@@ -602,8 +623,8 @@ async function handleDownloadChat() {
     try {
         const requestBody = {
             chatId: choicesInstance.getValue(true),
-            startDate: document.getElementById('dateRangePicker')._flatpickr.selectedDates[0].toISOString().split('T')[0],
-            endDate: document.getElementById('dateRangePicker')._flatpickr.selectedDates[1].toISOString().split('T')[0],
+            startDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[0]),
+            endDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[1]),
             enableCaching: cacheChatsToggle.checked,
             format: downloadFormat.value
         };
@@ -782,6 +803,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (backendSelect) backendSelect.addEventListener('change', handleBackendChange);
+    if (backendSelectMain) backendSelectMain.addEventListener('change', handleBackendChange);
     if (loginSubmitButton) loginSubmitButton.addEventListener('click', handleLogin);
     if (webexLoginButton) webexLoginButton.addEventListener('click', handleLogin);
     if (verifyButton) verifyButton.addEventListener('click', handleVerify);

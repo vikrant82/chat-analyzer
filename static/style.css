@@ -172,6 +172,31 @@ textarea {
     color: var(--text-color);
 }
 
+details.form-group {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px 15px;
+    margin-bottom: 1.5rem;
+    background-color: var(--background-color);
+}
+
+details.form-group summary {
+    font-weight: 500;
+    cursor: pointer;
+    outline: none;
+    color: var(--subtle-text-color);
+    padding-bottom: 5px;
+}
+
+details.form-group[open] summary {
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.dark-theme details.form-group {
+    border-color: #555;
+}
+
 /* --- Buttons --- */
 button {
     background-color: var(--primary-color);

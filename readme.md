@@ -14,6 +14,7 @@ The application features a robust caching system to ensure fast, repeated analys
     -   The AI maintains context throughout the conversation.
 -   **AI-Powered Analysis & Bot Integration**:
     -   **Threaded Conversation Support**: Automatically detects and groups threaded conversations in Webex, providing the LLM with the full context of the conversation.
+    -   **Configurable Image Analysis (Webex)**: Enable or disable image processing, set maximum file sizes, and control which MIME types are analyzed to manage costs and performance.
     -   **Webex Bot Support**: Register a Webex bot to invoke the analyzer directly from any Webex space. The bot leverages the permissions of the logged-in user to access and summarize chat history.
     -   **Telegram Bot Support**: Register a Telegram bot and interact with it directly to get summaries of any chat your user account is in.
     -   Mention the bot (e.g., `@MyAnalyzerBot summarize last 2 days`) to get an instant summary.
@@ -26,7 +27,7 @@ The application features a robust caching system to ensure fast, repeated analys
     -   Support for any OpenAI compatible endpoint.
     -   Dynamically populates and allows selection from all available models.
 -   **Intelligent Caching System**:
-    -   **Configurable**: Users can enable or disable caching.
+    -   **Configurable**: Users can enable or disable caching. Both file-based and in-memory caches respect this setting.
     -   Dramatically speeds up analysis of historical data.
     -   Caches messages on a per-day, per-chat basis.
     -   Caches "empty" days to prevent redundant API calls for periods with no activity.
@@ -218,6 +219,11 @@ You may want to build a local image with changes or if unable to access docker h
 
 In the root of the project, create a `config.json` file and populate it with your credentials.
 
+-   **Webex Image Processing**: The `image_processing` block within the `webex` configuration allows you to control how images are handled to manage AI costs.
+    -   `enabled`: Set to `true` to allow the application to download and analyze images, or `false` to disable it globally.
+    -   `max_size_bytes`: The maximum size of an image (in bytes) that will be processed.
+    -   `allowed_mime_types`: A list of image formats (e.g., "image/jpeg", "image/png") that are permitted for analysis.
+
 ```json
 {
   "telegram": {
@@ -230,7 +236,17 @@ In the root of the project, create a `config.json` file and populate it with you
     "redirect_uri": "http://localhost:8000/api/webex/callback",
     "scopes": [
       "spark:all"
-    ]
+    ],
+    "image_processing": {
+      "enabled": true,
+      "max_size_bytes": 10485760,
+      "allowed_mime_types": [
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp"
+      ]
+    }
   },
   "google_ai": {
     "api_key": "YOUR_GOOGLE_AI_API_KEY",
@@ -284,8 +300,11 @@ Once logged in, you will be on the "Analyze Chats" screen.
 2.  **Select an AI Model**: Choose your preferred AI model from the list. A sensible default will be pre-selected if configured.
 3.  **Select a Date Range**: Use the date picker to choose the start and end dates. You can also select from pre-defined ranges like "Last 2 Days", "Last Week", etc.
 4.  **Configure Caching**: Use the "Enable caching for faster analysis" checkbox to enable or disable caching for the current analysis.
-5.  **(Optional) Start with a Specific Question**: Before starting the chat, you can enter a specific question in the text box. If you do, the AI will answer that question directly instead of providing a general summary.
-6.  **Start Chat**: Click the **"Start Chat"** button to begin the analysis and open the conversational chat window.
+5.  **Configure Image Processing (Webex only)**: When connected to Webex, you can control image analysis for the current request.
+    -   **Analyze images in chat**: Uncheck this to disable image processing for this session.
+    -   **Max image size (MB)**: Set a size limit for images to be analyzed.
+6.  **(Optional) Start with a Specific Question**: Before starting the chat, you can enter a specific question in the text box. If you do, the AI will answer that question directly instead of providing a general summary.
+7.  **Start Chat**: Click the **"Start Chat"** button to begin the analysis and open the conversational chat window.
 7.  **Ask Follow-up Questions**: Use the chat input to ask follow-up questions about the analyzed data.
 8.  **Clear & Start New**: Click the **"Clear & Start New"** button to clear the conversation and start a new analysis.
 

@@ -44,28 +44,52 @@ class WebexClientImpl(ChatClient):
             token_storage_path=TOKEN_STORAGE_PATH
         )
         self.http_client = httpx.AsyncClient()
+        self.image_processing_config = WEBEX_CONFIG.get('image_processing', {})
 
 
-    async def _download_and_encode_file(self, file_url: str) -> Optional[Attachment]:
-        """Downloads a file from a URL and returns it as a Base64 encoded string."""
+    async def _download_and_encode_file(self, file_url: str, settings: Dict[str, Any]) -> Optional[Attachment]:
+        """
+        Downloads a file from a URL, applying filtering based on settings,
+        and returns it as a Base64 encoded string.
+        """
+        if not settings.get('enabled', False):
+            logger.info("Image processing is disabled by configuration. Skipping file download.")
+            return None
+
         try:
             headers = self.api.get_auth_headers()
+
+            # Use a HEAD request to check file metadata before downloading content
+            async with httpx.AsyncClient() as client:
+                head_response = await client.head(file_url, headers=headers)
+                head_response.raise_for_status()
+
+            content_type = head_response.headers.get('Content-Type', 'application/octet-stream')
+            content_length = int(head_response.headers.get('Content-Length', 0))
+
+            # 1. Check MIME type against allowed list
+            allowed_mime_types = settings.get('allowed_mime_types', [])
+            if allowed_mime_types and content_type not in allowed_mime_types:
+                logger.info(f"Skipping file of type '{content_type}' as it is not in the allowed list.")
+                return None
+
+            # 2. Check file size against the maximum
+            max_size_bytes = settings.get('max_size_bytes', 0)
+            if max_size_bytes > 0 and content_length > max_size_bytes:
+                logger.info(f"Skipping file of size {content_length} bytes as it exceeds the max size of {max_size_bytes} bytes.")
+                return None
+
+            # If all checks pass, proceed with downloading the actual file content
             response = await self.http_client.get(file_url, headers=headers)
             response.raise_for_status()
-            
-            content_type = response.headers.get('Content-Type', 'application/octet-stream')
-            # We only want to process images for now
-            if not content_type.startswith('image/'):
-                logger.info(f"Skipping non-image file: {content_type}")
-                return None
 
             encoded_data = base64.b64encode(response.content).decode('utf-8')
             return Attachment(mime_type=content_type, data=encoded_data)
         except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to download file from {file_url}: {e.response.status_code} {e.response.text}")
+            logger.error(f"HTTP error while fetching file from {file_url}: {e.response.status_code}")
             return None
         except Exception as e:
-            logger.error(f"An unexpected error occurred while downloading {file_url}: {e}", exc_info=True)
+            logger.error(f"An unexpected error occurred while processing file {file_url}: {e}", exc_info=True)
             return None
 
     def _get_cache_path(self, user_identifier: str, chat_id: str, day: datetime) -> str:
@@ -109,7 +133,7 @@ class WebexClientImpl(ChatClient):
         ]
         return chats
 
-    async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str, enable_caching: bool = True) -> List[Message]:
+    async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str, enable_caching: bool = True, image_processing_settings: Optional[Dict[str, Any]] = None) -> List[Message]:
         start_dt = datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
         end_dt = datetime.strptime(end_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc) + timedelta(days=1, microseconds=-1)
         today_dt = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -122,7 +146,7 @@ class WebexClientImpl(ChatClient):
             is_cacheable = current_day < today_dt
             cache_path = self._get_cache_path(user_identifier, chat_id, current_day)
             
-            if is_cacheable and os.path.exists(cache_path):
+            if enable_caching and is_cacheable and os.path.exists(cache_path):
                 logger.info(f"Cache HIT for Webex chat {chat_id} on {current_day.date()}")
                 with open(cache_path, 'r') as f:
                     try:
@@ -137,6 +161,12 @@ class WebexClientImpl(ChatClient):
             current_day += timedelta(days=1)
         
         if dates_to_fetch_from_api:
+            # Combine global config with per-request settings
+            final_image_settings = self.image_processing_config.copy()
+            if image_processing_settings:
+                final_image_settings.update(image_processing_settings)
+            logger.info(f"Image processing settings for this request: {final_image_settings}")
+
             logger.info(f"Cache MISS for Webex chat {chat_id}. Fetching messages from API back to {start_dt.date()}.")
             
             all_fetched_raw_messages = []
@@ -183,7 +213,7 @@ class WebexClientImpl(ChatClient):
                     attachments = []
                     if msg_raw.get('files'):
                         for file_url in msg_raw['files']:
-                            attachment = await self._download_and_encode_file(file_url)
+                            attachment = await self._download_and_encode_file(file_url, final_image_settings)
                             if attachment:
                                 attachments.append(attachment)
 

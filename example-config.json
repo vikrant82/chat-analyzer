@@ -9,7 +9,17 @@
     "redirect_uri": "http://localhost:8000/api/webex/callback",
     "scopes": [
       "spark:all"
-    ]
+    ],
+    "image_processing": {
+      "enabled": true,
+      "max_size_bytes": 10485760,
+      "allowed_mime_types": [
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp"
+      ]
+    }
   },
   "google_ai": {
     "api_key": "YOUR_GOOGLE_AI_API_KEY",

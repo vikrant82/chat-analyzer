@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any, Tuple
 import asyncio
 import base64
+import textwrap
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -80,6 +81,7 @@ class ChatMessage(BaseModel):
     enableCaching: bool
     conversation: List[Dict[str, Any]] # Can now contain complex content
     originalMessages: Optional[List[Dict[str, Any]]] = None # To hold the structured message data
+    imageProcessing: Optional[Dict[str, Any]] = None
 
 class DownloadRequest(BaseModel):
     chatId: str
@@ -293,25 +295,32 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
     try:
         end_date_dt = datetime.strptime(req.endDate, '%Y-%m-%d').date()
         today_dt = datetime.now(timezone.utc).date()
-        use_cache = end_date_dt < today_dt
+        is_historical_date = end_date_dt < today_dt
     except ValueError:
         logger.warning(f"Could not parse endDate '{req.endDate}'. Disabling cache for this request.")
-        use_cache = False
+        is_historical_date = False
 
-    if use_cache and cache_key in message_cache:
+    # The in-memory cache is only used if the user enabled it AND the date range is in the past.
+    use_in_memory_cache = req.enableCaching and is_historical_date
+
+    if use_in_memory_cache and cache_key in message_cache:
         logger.info(f"Cache HIT for conversation key: {cache_key}. Using cached messages.")
         original_messages_structured = json.loads(message_cache[cache_key])
         # This is an approximation, but good enough for the UI
         message_count = len(original_messages_structured)
     else:
-        if not use_cache:
+        if not is_historical_date:
             logger.info(f"Date range includes today. Bypassing in-memory cache for key: {cache_key}")
+        elif not req.enableCaching:
+            logger.info(f"User disabled caching for this request. Bypassing in-memory cache for key: {cache_key}")
         else:
             logger.info(f"Cache MISS for conversation key: {cache_key}. Fetching messages.")
         
         chat_client = get_client(backend)
         messages_list: List[StandardMessage] = await chat_client.get_messages(
-            user_id, req.chatId, req.startDate, req.endDate, enable_caching=req.enableCaching
+            user_id, req.chatId, req.startDate, req.endDate,
+            enable_caching=req.enableCaching,
+            image_processing_settings=req.imageProcessing
         )
         if not messages_list:
             async def empty_message_stream():
@@ -321,9 +330,9 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
         original_messages_structured = _format_messages_for_llm(messages_list)
         message_count = len(messages_list)
         
-        # Only cache the result if the date range does not include today
-        if use_cache:
-            logger.info(f"Storing result in cache for key: {cache_key}")
+        # Only cache the result if the date range does not include today and the user has enabled caching
+        if use_in_memory_cache:
+            logger.info(f"Storing result in in-memory cache for key: {cache_key}")
             message_cache[cache_key] = json.dumps(original_messages_structured)
 
     current_conversation = list(req.conversation)
@@ -332,7 +341,7 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
         yield f"data: {json.dumps({'type': 'status', 'message': f'Found {message_count} messages. Summarizing...'})}\n\n"
         
         try:
-            stream = llm_client.call_conversational(
+            stream = await llm_client.call_conversational(
                 req.modelName,
                 current_conversation,
                 original_messages_structured
@@ -427,6 +436,19 @@ def _format_messages_for_llm(messages: List[StandardMessage]) -> List[Dict[str, 
     return final_messages
 
 
+def _break_long_words(text: str, max_len: int) -> str:
+    """Inserts spaces into words longer than max_len to allow for line breaking."""
+    words = text.split(' ')
+    new_words = []
+    for word in words:
+        if len(word) > max_len:
+            # This is a simple way to break long words.
+            # It's not perfect but should prevent the FPDF error.
+            new_words.append(' '.join(textwrap.wrap(word, max_len, break_long_words=True)))
+        else:
+            new_words.append(word)
+    return ' '.join(new_words)
+
 def _create_pdf(text: str, chat_id: str) -> BytesIO:
     pdf = FPDF()
     pdf.add_page()
@@ -437,7 +459,8 @@ def _create_pdf(text: str, chat_id: str) -> BytesIO:
     pdf.ln(10)
     
     pdf.set_font("Arial", size=10)
-    pdf.multi_cell(0, 5, text.encode('latin-1', 'replace').decode('latin-1'))
+    safe_text = _break_long_words(text.encode('latin-1', 'replace').decode('latin-1'), 80)
+    pdf.multi_cell(0, 5, safe_text)
     
     pdf_bytes = pdf.output(dest='S')
     output = BytesIO(pdf_bytes)
@@ -472,7 +495,11 @@ async def download_chat(req: DownloadRequest, user_id: str = Depends(get_current
 
         # Format the message itself
         prefix = "    " if is_reply else ""
-        formatted_parts.append(f"{prefix}[{msg.author.name} at {msg.timestamp}]: {msg.text}")
+        text_content = msg.text or ""
+        if msg.attachments:
+            text_content += f" (Image Attachment: {', '.join([att.mime_type for att in msg.attachments])})"
+        
+        formatted_parts.append(f"{prefix}[{msg.author.name} at {msg.timestamp}]: {text_content}")
 
     # If the last message was in a thread, close it
     if in_thread:
