@@ -7,6 +7,7 @@ from google.generativeai.types import generation_types
 
 from .base_llm import LLMClient
 from .prompts import UNIFIED_SYSTEM_PROMPT, GENERAL_AI_SYSTEM_PROMPT
+from config import settings
 
 logger = logging.getLogger(__name__)
 

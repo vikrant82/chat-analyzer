@@ -1,16 +1,12 @@
 import httpx
 import logging
-from typing import Optional, List, Any
-from datetime import datetime, timedelta, timezone
-from telethon import TelegramClient
-from telethon.tl.types import User as TelethonUser, Channel as TelethonChannel
+from typing import Optional, List, Any, Dict
 
-from .base_client import Message, User
-from .telegram_client_impl import API_ID, API_HASH
+from .base_bot_client import BotClient
 
 logger = logging.getLogger(__name__)
 
-class TelegramBotClient:
+class TelegramBotClient(BotClient):
     """
     A client for Telegram Bot API interactions.
     """
@@ -19,12 +15,8 @@ class TelegramBotClient:
             raise ValueError("Bot token cannot be empty.")
         self.bot_token = bot_token
         self.api_url = f"https://api.telegram.org/bot{self.bot_token}"
-        self.client = None
 
     async def set_webhook(self, webhook_url: str) -> None:
-        """
-        Sets the webhook for the bot.
-        """
         url = f"{self.api_url}/setWebhook"
         params = {"url": webhook_url}
         async with httpx.AsyncClient() as client:
@@ -36,26 +28,19 @@ class TelegramBotClient:
                 logger.error(f"Error setting Telegram webhook: {e.response.text}")
                 raise
 
-    async def get_me(self) -> dict:
-        """
-        Gets the bot's own information.
-        """
+    async def get_me(self) -> Dict[str, Any]:
         url = f"{self.api_url}/getMe"
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(url)
                 response.raise_for_status()
-                return response.json().get("result")
+                return response.json().get("result", {})
             except httpx.HTTPStatusError as e:
                 logger.error(f"Error getting bot info: {e.response.text}")
                 raise
 
-    async def send_message(self, chat_id: int, text: str) -> None:
-        """
-        Sends a message to a specific chat.
-        """
+    async def send_message(self, chat_id: int, text: str):
         url = f"{self.api_url}/sendMessage"
-        # Not using Markdown parsing to avoid errors from AI-generated text.
         params = {"chat_id": chat_id, "text": text}
         async with httpx.AsyncClient() as client:
             try:
@@ -64,4 +49,16 @@ class TelegramBotClient:
             except httpx.HTTPStatusError as e:
                 logger.error(f"Error sending Telegram message: {e.response.text}")
                 raise
+
+    async def post_message(self, room_id: str, text: str, parent_id: Optional[str] = None):
+        # Not applicable to Telegram
+        pass
+
+    async def get_messages(self, **kwargs) -> list[Dict[str, Any]]:
+        # Not applicable to Telegram
+        return []
+
+    async def create_webhook(self, webhook_name: str, target_url: str, resource: str, event: str, filter_str: str):
+        # Not applicable to Telegram
+        pass
 

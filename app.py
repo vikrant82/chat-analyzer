@@ -27,6 +27,8 @@ from clients.base_client import Message as StandardMessage
 from clients.telegram_bot_client_impl import TelegramBotClient
 from ai.factory import get_all_llm_clients
 from bot_manager import BotManager
+from services.chat import ChatService
+from services.cache import CacheService
 
 # --- Basic Setup & Logging ---
 logging.basicConfig(
@@ -43,11 +45,11 @@ logger = logging.getLogger(__name__)
 llm_clients = {}
 config = {}
 conversations: Dict[str, List[Dict[str, str]]] = {}
-message_cache: Dict[str, str] = {}
 chat_modes: Dict[int, str] = {} # Tracks the mode for each chat_id
 session_tokens: Dict[str, Dict[str, str]] = {}
 SESSIONS_FILE = "sessions/app_sessions.json"
 bot_manager = BotManager()
+chat_services: Dict[str, ChatService] = {}
 
 def _save_app_sessions():
     """Saves the current session_tokens dictionary to the file system."""
@@ -100,7 +102,7 @@ class BotRegistrationRequest(BaseModel):
 async def lifespan(app: FastAPI):
     logger.info("Application startup: Initializing...")
     _load_app_sessions()
-    global llm_clients, config
+    global llm_clients, config, chat_services
     try:
         with open('config.json', 'r') as f:
             config.update(json.load(f))
@@ -110,6 +112,12 @@ async def lifespan(app: FastAPI):
         
         initialization_tasks = [client.initialize_models() for client in llm_clients.values()]
         await asyncio.gather(*initialization_tasks)
+
+        # Initialize chat services
+        for backend in ['telegram', 'webex']:
+            client = get_client(backend)
+            cache_service = CacheService(backend)
+            chat_services[backend] = ChatService(client, cache_service)
 
     except FileNotFoundError:
         logger.error("config.json not found!")
@@ -244,11 +252,6 @@ async def get_session_status(user_id: str = Depends(get_current_user_id), backen
     else:
         token_to_remove = next((token for token, data in session_tokens.items() if data.get("user_id") == user_id), None)
         if token_to_remove:
-            keys_to_delete = [key for key in message_cache if key.startswith(token_to_remove)]
-            for key in keys_to_delete:
-                del message_cache[key]
-                logger.info(f"Cleaned up message cache for invalid session: {key}")
-
             if token_to_remove in conversations:
                 del conversations[token_to_remove]
                 logger.info(f"Cleaned up conversation history for invalid session: {token_to_remove}")
@@ -277,73 +280,34 @@ class LogoutRequest(BaseModel):
 @router_api.post("/chat")
 async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), backend: str = Query(...)):
     llm_client = llm_clients.get(req.provider)
-
     if not llm_client:
         raise HTTPException(status_code=400, detail=f"Invalid provider '{req.provider}' specified.")
 
     if req.modelName not in llm_client.get_available_models():
         raise HTTPException(status_code=400, detail=f"Model '{req.modelName}' is not available for provider '{req.provider}'.")
 
-    token = next((t for t, data in session_tokens.items() if data.get("user_id") == user_id), None)
-    if not token:
-        raise HTTPException(status_code=401, detail="Could not find session token for user.")
+    chat_service = chat_services.get(backend)
+    if not chat_service:
+        raise HTTPException(status_code=500, detail=f"Chat service for backend '{backend}' not initialized.")
 
-    cache_key = f"{token}_{req.chatId}_{req.startDate}_{req.endDate}"
-    
-    # --- Cache Invalidation for Today's Date ---
-    # Parse end date and compare with today's date to decide if caching is safe.
-    try:
-        end_date_dt = datetime.strptime(req.endDate, '%Y-%m-%d').date()
-        today_dt = datetime.now(timezone.utc).date()
-        is_historical_date = end_date_dt < today_dt
-    except ValueError:
-        logger.warning(f"Could not parse endDate '{req.endDate}'. Disabling cache for this request.")
-        is_historical_date = False
+    messages_list = await chat_service.get_messages(
+        user_identifier=user_id,
+        chat_id=req.chatId,
+        start_date_str=req.startDate,
+        end_date_str=req.endDate,
+        enable_caching=req.enableCaching,
+        image_processing_settings=req.imageProcessing,
+    )
 
-    # The in-memory cache is only used if the user enabled it AND the date range is in the past.
-    use_in_memory_cache = req.enableCaching and is_historical_date
+    if not messages_list:
+        async def empty_message_stream():
+            yield f"data: {json.dumps({'type': 'content', 'chunk': 'No messages found in the selected date range. Please select a different range.'})}\n\n"
+        return StreamingResponse(empty_message_stream(), media_type="text/event-stream")
 
-    if use_in_memory_cache and cache_key in message_cache:
-        logger.info(f"Cache HIT for conversation key: {cache_key}. Using cached messages.")
-        original_messages_structured = json.loads(message_cache[cache_key])
-        # This is an approximation, but good enough for the UI
-        message_count = len(original_messages_structured)
-    else:
-        if not is_historical_date:
-            logger.info(f"Date range includes today. Bypassing in-memory cache for key: {cache_key}")
-        elif not req.enableCaching:
-            logger.info(f"User disabled caching for this request. Bypassing in-memory cache for key: {cache_key}")
-        else:
-            logger.info(f"Cache MISS for conversation key: {cache_key}. Fetching messages.")
-        
-        chat_client = get_client(backend)
-        
-        get_messages_kwargs = {
-            "user_identifier": user_id,
-            "chat_id": req.chatId,
-            "start_date_str": req.startDate,
-            "end_date_str": req.endDate,
-            "enable_caching": req.enableCaching,
-        }
-        if backend == 'webex':
-            get_messages_kwargs["image_processing_settings"] = req.imageProcessing
-
-        messages_list: List[StandardMessage] = await chat_client.get_messages(**get_messages_kwargs)
-        if not messages_list:
-            async def empty_message_stream():
-                yield f"data: {json.dumps({'type': 'content', 'chunk': 'No messages found in the selected date range. Please select a different range.'})}\n\n"
-            return StreamingResponse(empty_message_stream(), media_type="text/event-stream")
-        
-        original_messages_structured = _format_messages_for_llm(messages_list)
-        message_count = len(messages_list)
-        
-        # Only cache the result if the date range does not include today and the user has enabled caching
-        if use_in_memory_cache:
-            logger.info(f"Storing result in in-memory cache for key: {cache_key}")
-            message_cache[cache_key] = json.dumps(original_messages_structured)
-
+    original_messages_structured = _format_messages_for_llm(messages_list)
+    message_count = len(messages_list)
     current_conversation = list(req.conversation)
-    
+
     async def stream_generator():
         yield f"data: {json.dumps({'type': 'status', 'message': f'Found {message_count} messages. Summarizing...'})}\n\n"
         
@@ -477,9 +441,16 @@ def _create_pdf(text: str, chat_id: str) -> BytesIO:
 
 @router_api.post("/download")
 async def download_chat(req: DownloadRequest, user_id: str = Depends(get_current_user_id), backend: str = Query(...)):
-    chat_client = get_client(backend)
-    messages_list: List[StandardMessage] = await chat_client.get_messages(
-        user_id, req.chatId, req.startDate, req.endDate, enable_caching=req.enableCaching
+    chat_service = chat_services.get(backend)
+    if not chat_service:
+        raise HTTPException(status_code=500, detail=f"Chat service for backend '{backend}' not initialized.")
+
+    messages_list = await chat_service.get_messages(
+        user_identifier=user_id,
+        chat_id=req.chatId,
+        start_date_str=req.startDate,
+        end_date_str=req.endDate,
+        enable_caching=req.enableCaching,
     )
 
     if not messages_list:
@@ -530,11 +501,6 @@ async def clear_session(user_id: str = Depends(get_current_user_id)):
     token = next((t for t, data in session_tokens.items() if data.get("user_id") == user_id), None)
     if not token:
         raise HTTPException(status_code=401, detail="Could not find session token for user.")
-    
-    keys_to_delete = [key for key in message_cache if key.startswith(token)]
-    for key in keys_to_delete:
-        del message_cache[key]
-        logger.info(f"Removed message cache for key: {key}")
 
     if token in conversations:
         del conversations[token]
@@ -547,11 +513,6 @@ async def logout(user_id: str = Depends(get_current_user_id), backend: str = Que
     token_to_remove = next((token for token, data in session_tokens.items() if data.get("user_id") == user_id), None)
 
     if token_to_remove:
-        keys_to_delete = [key for key in message_cache if key.startswith(token_to_remove)]
-        for key in keys_to_delete:
-            del message_cache[key]
-            logger.info(f"Removed message cache for key: {key}")
-
         if token_to_remove in conversations:
             del conversations[token_to_remove]
             logger.info(f"Removed conversation history for token: {token_to_remove}")
@@ -697,7 +658,7 @@ async def _find_active_user_session(backend: str) -> Optional[str]:
                 return user_id_to_check
     return None
 
-async def _process_bot_command(bot_client: Any, webex_client: Any, active_user_id: str, room_id: str, message_text: str):
+def _parse_bot_command(message_text: str, default_days: int = 1) -> Tuple[datetime, datetime, str]:
     import re
     days_match = re.search(r"last (\d+) days", message_text, re.IGNORECASE)
     
@@ -707,21 +668,25 @@ async def _process_bot_command(bot_client: Any, webex_client: Any, active_user_i
         start_date = end_date - timedelta(days=num_days)
         query = re.sub(r"\s*last \d+ days\s*", "", message_text, flags=re.IGNORECASE).strip()
     else:
-        start_date = end_date - timedelta(days=1)
+        start_date = end_date - timedelta(days=default_days)
         query = message_text
 
     if not query:
         query = "Provide a concise summary of the conversation."
+        
+    return start_date, end_date, query
 
+async def _process_bot_command(bot_client: Any, webex_client: Any, active_user_id: str, room_id: str, message_text: str):
+    start_date, end_date, query = _parse_bot_command(message_text)
     logger.info(f"Bot using user '{active_user_id}' to fetch history for room {room_id}")
     
     try:
-        messages_list = await webex_client.get_messages(
-            active_user_id, room_id, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'), enable_caching=False
+        messages_list = await webex_client.fetch_messages_from_api(
+            active_user_id, room_id, start_date, end_date,
         )
         
         if not messages_list:
-            bot_client.post_message(room_id=room_id, text="No messages found in the specified date range.")
+            await bot_client.post_message(room_id=room_id, text="No messages found in the specified date range.")
             return
 
         formatted_messages_structured = _format_messages_for_llm(messages_list)
@@ -739,12 +704,12 @@ async def _process_bot_command(bot_client: Any, webex_client: Any, active_user_i
         async for chunk in stream:
             ai_response += chunk
         
-        bot_client.post_message(room_id=room_id, text=ai_response)
+        await bot_client.post_message(room_id=room_id, text=ai_response)
 
     except Exception as e:
         logger.error(f"Bot failed to process message: {e}", exc_info=True)
         error_message = "I encountered an error trying to process your request. Please check the server logs."
-        bot_client.post_message(room_id=room_id, text=error_message)
+        await bot_client.post_message(room_id=room_id, text=error_message)
 
 async def _handle_ai_mode(bot_client: Any, user_chat_id: int, message_text: str):
     """Handles direct interaction with the AI in a conversational manner."""
@@ -769,7 +734,7 @@ async def _handle_ai_mode(bot_client: Any, user_chat_id: int, message_text: str)
             raise Exception("No default AI model configured for the bot.")
 
         # Call the conversational endpoint without providing original_messages
-        stream = llm_client.call_conversational(model_name, history, None)
+        stream = await llm_client.call_conversational(model_name, history, None)
 
         ai_response = ""
         # Dont try to fix this error
@@ -792,30 +757,15 @@ async def _handle_ai_mode(bot_client: Any, user_chat_id: int, message_text: str)
 
 async def _handle_summarizer_mode(bot_client: Any, telegram_client: Any, active_user_id: str, user_chat_id: int, bot_id: int, message_text: str):
     """Handles the original chat summarization logic."""
-    import re
-    days_match = re.search(r"last (\d+) days", message_text, re.IGNORECASE)
-    
-    end_date = datetime.now(timezone.utc)
-    if days_match:
-        num_days = int(days_match.group(1))
-        start_date = end_date - timedelta(days=num_days)
-        query = re.sub(r"\s*last \d+ days\s*", "", message_text, flags=re.IGNORECASE).strip()
-    else:
-        start_date = end_date - timedelta(days=5)
-        query = message_text
-
-    if not query:
-        query = "Provide a concise summary of the conversation."
-
+    start_date, end_date, query = _parse_bot_command(message_text, default_days=5)
     logger.info(f"Bot {bot_id} using user '{active_user_id}' to fetch history for chat with user {user_chat_id}")
     
     try:
-        messages_list = await telegram_client.get_messages(
+        messages_list = await telegram_client.fetch_messages_from_api(
             active_user_id,
             str(bot_id),
-            start_date.strftime('%Y-%m-%d'),
-            end_date.strftime('%Y-%m-%d'),
-            enable_caching=False
+            start_date,
+            end_date,
         )
         
         if not messages_list:
@@ -831,10 +781,9 @@ async def _handle_summarizer_mode(bot_client: Any, telegram_client: Any, active_
             raise Exception("No default AI model configured for the bot.")
 
         conversation_history = [{"role": "user", "content": query}]
-        stream = llm_client.call_conversational(model_name, conversation_history, formatted_messages_structured)
+        stream = await llm_client.call_conversational(model_name, conversation_history, formatted_messages_structured)
 
         ai_response = ""
-        # Dont try to fix this error
         async for chunk in stream:
             ai_response += chunk
         
@@ -957,16 +906,7 @@ async def telegram_webhook(bot_token: str, req: Request):
                 logger.info(f"Ignoring message in group {chat_id} because bot was not mentioned or replied to.")
                 return {"status": "ignored", "reason": "Bot not addressed in group"}
 
-        # We need to pass the specific TelegramBotClient to the processing function
-        # as it has methods not on the unified client, like send_message.
-        # A better long-term fix is to unify all required methods.
-        if hasattr(bot_client, '_client') and isinstance(bot_client._client, TelegramBotClient):
-            specific_bot_client = bot_client._client
-        else:
-            # Fallback or error if the structure is not as expected
-            raise Exception("Could not retrieve specific TelegramBotClient from UnifiedBotClient")
-
-        await _process_telegram_bot_command(specific_bot_client, telegram_client, active_user_id, chat_id, bot_id, message_text)
+        await _process_telegram_bot_command(bot_client, telegram_client, active_user_id, chat_id, bot_id, message_text)
 
         return {"status": "processed"}
 

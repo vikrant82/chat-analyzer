@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 
@@ -65,9 +66,17 @@ class ChatClient(ABC):
         pass
 
     @abstractmethod
-    async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str, enable_caching: bool = True, image_processing_settings: Optional[Dict[str, Any]] = None) -> List[Message]:
+    async def fetch_messages_from_api(
+        self,
+        user_identifier: str,
+        chat_id: str,
+        start_date: "datetime",
+        end_date: "datetime",
+        image_processing_settings: Optional[Dict[str, Any]] = None,
+    ) -> List[Message]:
         """
-        Fetches messages from a specific chat within a date range.
+        Fetches messages directly from the external API for a given date range.
+        This method should not implement any caching.
         """
         pass
 

@@ -2,28 +2,20 @@ import os
 import base64
 import httpx
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 from .base_client import ChatClient, Chat, Message, User, Attachment
 from WebexClient import WebexClient
-import json
 import logging
+from config import settings
 
 logger = logging.getLogger(__name__)
 
-# --- Configuration Loading ---
-try:
-    with open('config.json', 'r') as f:
-        config = json.load(f).get('webex', {})
-    WEBEX_CONFIG = config
-except FileNotFoundError:
-    WEBEX_CONFIG = {}
-    logger.error("Webex config not found in config.json")
+# --- Configuration ---
+WEBEX_CONFIG = settings.get_webex_config()
 
 # --- Directory Setup ---
 SESSION_DIR = os.path.join(os.path.dirname(__file__), '..', 'sessions')
-CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', 'cache', 'webex')
 os.makedirs(SESSION_DIR, exist_ok=True)
-os.makedirs(CACHE_DIR, exist_ok=True)
 TOKEN_STORAGE_PATH = os.path.join(SESSION_DIR, 'webex_tokens.json')
 
 
@@ -33,13 +25,13 @@ class WebexClientImpl(ChatClient):
         client_secret = WEBEX_CONFIG.get('client_secret')
         redirect_uri = WEBEX_CONFIG.get('redirect_uri')
 
-        if client_id is None or client_secret is None or redirect_uri is None:
+        if not all([client_id, client_secret, redirect_uri]):
             raise ValueError("Webex client_id, client_secret, and redirect_uri must be set in config.json")
 
         self.api = WebexClient(
-            client_id=client_id,
-            client_secret=client_secret,
-            redirect_uri=redirect_uri,
+            client_id=str(client_id),
+            client_secret=str(client_secret),
+            redirect_uri=str(redirect_uri),
             scopes=WEBEX_CONFIG.get('scopes', []),
             token_storage_path=TOKEN_STORAGE_PATH
         )
@@ -92,13 +84,6 @@ class WebexClientImpl(ChatClient):
             logger.error(f"An unexpected error occurred while processing file {file_url}: {e}", exc_info=True)
             return None
 
-    def _get_cache_path(self, user_identifier: str, chat_id: str, day: datetime) -> str:
-        safe_user_id = ''.join(filter(str.isalnum, user_identifier))
-        safe_chat_id = ''.join(filter(str.isalnum, str(chat_id)))
-        user_cache_dir = os.path.join(CACHE_DIR, safe_user_id, safe_chat_id)
-        os.makedirs(user_cache_dir, exist_ok=True)
-        return os.path.join(user_cache_dir, f"{day.strftime('%Y-%m-%d')}.json")
-
     async def login(self, auth_details: Dict[str, Any]) -> Dict[str, Any]:
         auth_url = self.api.get_authorization_url()
         return {"status": "redirect_required", "url": auth_url}
@@ -107,6 +92,7 @@ class WebexClientImpl(ChatClient):
         auth_code = auth_details.get("code")
         if not auth_code:
             raise ValueError("Authorization code is required for Webex verification.")
+        
         try:
             self.api.exchange_code_for_tokens(auth_code)
             user_details = self.api.get_user_details()
@@ -120,166 +106,88 @@ class WebexClientImpl(ChatClient):
         try:
             self.api.revoke_token()
         except Exception as e:
-            logger.error(f"Error during Webex token revocation: {e}", exc_info=True)
+            logger.error(f"Error during Webex token revocation for user {user_identifier}: {e}", exc_info=True)
 
     async def get_chats(self, user_identifier: str) -> List[Chat]:
         raw_rooms = self.api.get_rooms()
-        chats = [
+        return [
             Chat(
                 id=room['id'],
                 title=room['title'],
                 type='group' if room['type'] == 'group' else 'private'
             ) for room in raw_rooms
         ]
-        return chats
 
-    async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str, enable_caching: bool = True, image_processing_settings: Optional[Dict[str, Any]] = None) -> List[Message]:
-        start_dt = datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
-        end_dt = datetime.strptime(end_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc) + timedelta(days=1, microseconds=-1)
-        today_dt = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-
-        all_messages = []
-        dates_to_fetch_from_api = []
-
-        current_day = start_dt
-        while current_day <= end_dt:
-            is_cacheable = current_day < today_dt
-            cache_path = self._get_cache_path(user_identifier, chat_id, current_day)
-            
-            if enable_caching and is_cacheable and os.path.exists(cache_path):
-                logger.info(f"Cache HIT for Webex chat {chat_id} on {current_day.date()}")
-                with open(cache_path, 'r') as f:
-                    try:
-                        raw_msgs = json.load(f)
-                        all_messages.extend([Message(**msg) for msg in raw_msgs])
-                    except json.JSONDecodeError:
-                        logger.warning(f"Cache file {cache_path} is corrupted. Re-fetching.")
-                        dates_to_fetch_from_api.append(current_day)
-            else:
-                dates_to_fetch_from_api.append(current_day)
-            
-            current_day += timedelta(days=1)
+    async def fetch_messages_from_api(
+        self,
+        user_identifier: str,
+        chat_id: str,
+        start_date: datetime,
+        end_date: datetime,
+        image_processing_settings: Optional[Dict[str, Any]] = None,
+    ) -> List[Message]:
         
-        if dates_to_fetch_from_api:
-            # Combine global config with per-request settings
-            final_image_settings = self.image_processing_config.copy()
-            if image_processing_settings:
-                final_image_settings.update(image_processing_settings)
-            logger.info(f"Image processing settings for this request: {final_image_settings}")
-
-            logger.info(f"Cache MISS for Webex chat {chat_id}. Fetching messages from API back to {start_dt.date()}.")
-            
-            all_fetched_raw_messages = []
-            oldest_message_dt = datetime.now(timezone.utc)
-            fetch_start_dt = dates_to_fetch_from_api[0]
-            
-            params = {"room_id": chat_id, "max": 1000}
-
-            while oldest_message_dt > fetch_start_dt:
-                logger.info(f"Fetching a batch of Webex messages for room {chat_id} before {params.get('before', 'now')}")
-                try:
-                    raw_batch = self.api.get_messages(**params)
-                except Exception as e:
-                    logger.error(f"Failed to fetch message batch for Webex room {chat_id}: {e}", exc_info=True)
-                    break 
-
+        logger.info(f"Fetching Webex messages for room {chat_id} from API.")
+        
+        all_raw_messages = []
+        params = {"roomId": chat_id, "max": 1000}
+        
+        while True:
+            try:
+                raw_batch = self.api.get_messages(**params)
                 if not raw_batch:
-                    logger.info(f"No more messages found for Webex room {chat_id}. Stopping pagination.")
                     break
-
-                all_fetched_raw_messages.extend(raw_batch)
+                all_raw_messages.extend(raw_batch)
                 
-                oldest_message_in_batch_raw = raw_batch[-1]
-                oldest_message_dt = datetime.fromisoformat(oldest_message_in_batch_raw['created'].replace('Z', '+00:00'))
-                params['before'] = oldest_message_in_batch_raw['created']
-
-                if len(raw_batch) < 2:
-                     logger.info("Fetched a batch with less than 2 messages, assuming end of history.")
-                     break
-
-            grouped_by_day = {}
-            for msg_raw in all_fetched_raw_messages:
-                # A message must have text OR files to be considered
-                if not msg_raw.get('text') and not msg_raw.get('files'):
-                    continue
+                # Pagination logic
+                oldest_message_dt = datetime.fromisoformat(raw_batch[-1]['created'].replace('Z', '+00:00'))
+                if oldest_message_dt < start_date:
+                    break # We've gone back far enough
                 
-                msg_dt = datetime.fromisoformat(msg_raw['created'].replace('Z', '+00:00'))
-                msg_day = msg_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+                params['before'] = raw_batch[-1]['created']
 
-                if start_dt <= msg_day <= end_dt:
-                    if msg_day not in grouped_by_day:
-                        grouped_by_day[msg_day] = []
-                    
-                    attachments = []
-                    if msg_raw.get('files'):
-                        for file_url in msg_raw['files']:
-                            attachment = await self._download_and_encode_file(file_url, final_image_settings)
-                            if attachment:
-                                attachments.append(attachment)
+            except Exception as e:
+                logger.error(f"Failed to fetch message batch for Webex room {chat_id}: {e}", exc_info=True)
+                break
 
-                    # Only create a message if it has text or a successfully processed attachment
-                    if msg_raw.get('text') or attachments:
-                        author = User(id=msg_raw.get('personId', 'unknown'), name=msg_raw.get('personEmail', 'Unknown User'))
-                        message = Message(
-                            id=msg_raw['id'],
-                            text=msg_raw.get('text'),
-                            author=author,
-                            timestamp=msg_raw['created'],
-                            thread_id=msg_raw.get('parentId'),
-                            attachments=attachments if attachments else None
-                        )
-                        grouped_by_day[msg_day].append(message)
+        # Process the raw messages
+        messages = []
+        final_image_settings = self.image_processing_config.copy()
+        if image_processing_settings:
+            final_image_settings.update(image_processing_settings)
 
-            for day_to_cache in dates_to_fetch_from_api:
-                messages_for_this_day = grouped_by_day.get(day_to_cache, [])
+        for msg_raw in all_raw_messages:
+            msg_dt = datetime.fromisoformat(msg_raw['created'].replace('Z', '+00:00'))
+            if not (start_date <= msg_dt <= end_date):
+                continue
+
+            if not msg_raw.get('text') and not msg_raw.get('files'):
+                continue
+
+            attachments = []
+            if msg_raw.get('files'):
+                for file_url in msg_raw['files']:
+                    attachment = await self._download_and_encode_file(file_url, final_image_settings)
+                    if attachment:
+                        attachments.append(attachment)
+
+            if msg_raw.get('text') or attachments:
+                author = User(id=msg_raw.get('personId', 'unknown'), name=msg_raw.get('personEmail', 'Unknown User'))
+                message = Message(
+                    id=msg_raw['id'],
+                    text=msg_raw.get('text'),
+                    author=author,
+                    timestamp=msg_raw['created'],
+                    thread_id=msg_raw.get('parentId'),
+                    attachments=attachments if attachments else None
+                )
+                messages.append(message)
                 
-                all_messages.extend(messages_for_this_day)
-                
-                if day_to_cache < today_dt and enable_caching:
-                    cache_path = self._get_cache_path(user_identifier, chat_id, day_to_cache)
-                    with open(cache_path, 'w') as f:
-                        logger.info(f"Caching {len(messages_for_this_day)} messages for Webex on {day_to_cache.date()} at {cache_path}")
-                        json.dump([msg.model_dump() for msg in messages_for_this_day], f)
-
-        # Group messages by thread_id
-        threads: Dict[str, List[Message]] = {}
-        top_level_messages: List[Message] = []
-
-        for msg in all_messages:
-            if msg.thread_id:
-                if msg.thread_id not in threads:
-                    threads[msg.thread_id] = []
-                threads[msg.thread_id].append(msg)
-            else:
-                # This is a top-level message
-                top_level_messages.append(msg)
-        
-        # Sort messages within each thread
-        for thread_id in threads:
-            threads[thread_id].sort(key=lambda m: m.timestamp)
-
-        # Reconstruct the final list, with threaded messages following their parent
-        final_message_list: List[Message] = []
-        
-        # Sort top-level messages by timestamp to maintain overall order
-        top_level_messages.sort(key=lambda m: m.timestamp)
-
-        for top_msg in top_level_messages:
-            final_message_list.append(top_msg)
-            # If this top-level message has a thread, append it
-            if top_msg.id in threads:
-                final_message_list.extend(threads[top_msg.id])
-                # Remove the thread once it's been added
-                del threads[top_msg.id]
-
-        # Add any remaining threads that might have been orphaned (optional, but good practice)
-        for thread_id in sorted(threads.keys()):
-             final_message_list.extend(threads[thread_id])
-
-        return final_message_list
+        return messages
 
     async def is_session_valid(self, user_identifier: str) -> bool:
         try:
+            # A simple check to see if we can get user details
             self.api.get_user_details()
             return True
         except Exception:
