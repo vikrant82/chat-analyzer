@@ -9,7 +9,6 @@ import base64
 import textwrap
 from datetime import datetime, timedelta, timezone
 
-import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request, APIRouter, Depends, Header
 from fastapi.middleware.gzip import GZipMiddleware
