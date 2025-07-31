@@ -123,12 +123,14 @@ let choicesInstance = null;
 
 function updateStartChatButtonState() {
     if (!startChatButton) return;
+    const datePicker = document.getElementById('dateRangePicker');
+    const validDateSelected = datePicker && datePicker._flatpickr && datePicker._flatpickr.selectedDates.length === 2;
     const validChatSelected = choicesInstance && choicesInstance.getValue(true) != null && choicesInstance.getValue(true) !== "";
     const validModelSelected = modelSelect && modelSelect.value && !modelSelect.options[modelSelect.selectedIndex]?.disabled;
-    const baseRequirementsMet = appState.chatListStatus[appState.activeBackend] === 'loaded' && appState.modelsLoaded && validChatSelected && validModelSelected;
+    const baseRequirementsMet = appState.chatListStatus[appState.activeBackend] === 'loaded' && appState.modelsLoaded && validChatSelected && validModelSelected && validDateSelected;
     startChatButton.disabled = !baseRequirementsMet;
     if (downloadChatButton) {
-        downloadChatButton.disabled = !validChatSelected;
+        downloadChatButton.disabled = !validChatSelected || !validDateSelected;
     }
     if (initialQuestion) {
         initialQuestion.disabled = !baseRequirementsMet;
@@ -681,6 +683,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (startChatButton) {
         startChatButton.addEventListener('click', () => {
+            const datePicker = document.getElementById('dateRangePicker');
+            if (!datePicker._flatpickr || datePicker._flatpickr.selectedDates.length !== 2) {
+                dateError.textContent = 'Please select a valid date range.';
+                return;
+            }
+            dateError.textContent = '';
             closeMobileMenu();
             if (appState.conversation.length > 0) {
                 if (!confirm("You have an ongoing conversation. Starting a new chat will clear the current conversation. Continue?")) {
@@ -706,8 +714,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (chatColumn) {
                 chatColumn.style.display = 'flex';
                 startChatButton.disabled = true;
-                if (initialQuestion) {
-                    initialQuestion.style.display = 'none';
+                if (initialQuestionGroup) {
+                    initialQuestionGroup.style.display = 'none';
                 }
                 callChatApi(question);
             }
@@ -755,8 +763,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if(welcomeMessage) {
                 welcomeMessage.style.display = 'block';
             }
-            if (initialQuestion) {
-                initialQuestion.style.display = 'block';
+            if (toggleQuestionCheckbox) {
+                toggleQuestionCheckbox.checked = false;
+            }
+            if (initialQuestionGroup) {
+                initialQuestionGroup.style.display = 'none';
             }
             updateStartChatButtonState();
         });
@@ -778,8 +789,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (welcomeMessage) {
                 welcomeMessage.style.display = 'block';
             }
-            if (initialQuestion) {
-                initialQuestion.style.display = 'block';
+            if (toggleQuestionCheckbox) {
+                toggleQuestionCheckbox.checked = false;
+            }
+            if (initialQuestionGroup) {
+                initialQuestionGroup.style.display = 'none';
                 initialQuestion.value = '';
             }
             updateStartChatButtonState();
