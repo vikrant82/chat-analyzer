@@ -15,7 +15,6 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import AsyncGenerator
 from fpdf import FPDF
 from io import BytesIO
 
