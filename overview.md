@@ -2,13 +2,12 @@
 
 **1. High-Level Summary**
    - **Purpose:** This project provides a chat analysis service that can be invoked via Webex or Telegram bots. It summarizes chat conversations and can also act as a conversational AI.
-   - **User:** Developers and end-users who want to quickly understand the content of a chat conversation.
+   - **Users:** Developers and end-users who want to quickly understand the content of a chat conversation.
    - **Core Functionality:**
-     - **Webex Bot Integration**: Allows users to register a Webex bot and invoke the chat analyzer from any Webex space by mentioning the bot.
-           - **Webex Threading**: The application correctly handles threaded conversations in Webex. Messages are grouped by thread, and the context is formatted to preserve the conversational flow.
-           - **Webex Image Support**: The application can now process and include images from Webex chats in its analysis, passing them to the multimodal AI model.
-     - **Telegram Bot Integration**: Allows users to register a Telegram bot and interact with it directly to get summaries of any chat.
-     - **/aimode for Telegram Bot**: A feature that enables a conversational AI mode, allowing users to ask direct questions to the AI about the chat history.
+     - **Webex Bot Integration:** Register a Webex bot and invoke the analyzer from any Webex space by mentioning the bot.
+       - **Threading (Webex + Telegram):** Threaded conversations are preserved. Webex uses native thread IDs. Telegram threads are reconstructed by resolving reply-chain roots; replies are grouped under the root. Transcript packaging emits explicit “--- Thread Started/Ended ---” markers to preserve conversational flow for the LLM.
+       - **Image Support (Provider-Agnostic):** Images from Webex and Telegram can be included, subject to configurable processing rules (enable flag, max size, optional allowed MIME types). Media is base64-encoded and sent to multimodal models as image parts with adjacent caption grounding.
+     - **Telegram Bot Integration:** Register a Telegram bot and interact directly for summaries. Supports `/aimode` to switch to conversational AI.
 
 **2. Technology Stack**
    - **Languages:** Python
@@ -17,9 +16,11 @@
    - **Database:** None.
 
 **3. Directory Structure Map**
-   - `/ai`: Contains all AI-related logic, including prompts and model factories.
-   - `/clients`: Contains the client implementations for interacting with different chat platforms (Telegram, Webex).
-   - `/static`: Contains the frontend files for the web UI.
+  - `/ai`: System prompts, LLM client factories, and OpenAI-compatible streaming implementation. See [`python.ai.openai_compatible_llm`](ai/openai_compatible_llm.py:1).
+  - `/clients`: Platform clients (Telegram, Webex). See [`python.clients.telegram_client_impl`](clients/telegram_client_impl.py:1) and [`python.clients.webex_client_impl`](clients/webex_client_impl.py:1).
+  - `/static`: Frontend HTML/CSS/JS. The UI sends the browser timezone to the backend and exposes global Image Processing Options. See [`javascript.static/script.js`](static/script.js:1).
+  - `/bot_manager.py`: Bot registration/lookup. See [`python.bot_manager`](bot_manager.py:1).
+  - `/clients/bot_factory.py`: Unified bot client factory; Webex/Telegram bot senders. See [`python.clients.bot_factory`](clients/bot_factory.py:1).
 
 **4. Execution & Entry Points**
    - **How to Run Locally:** `docker-compose up`
@@ -27,72 +28,56 @@
    - **Build Process:** `docker-compose build`
 
 **5. Architecture & Core Logic**
-   - **Key Modules/Components:**
-     - **File:** `app.py`
-     - **Responsibility:** Main FastAPI application. Handles all API routing, user authentication, and orchestrates the chat analysis process. Contains the webhook handler for bot interactions. It also manages the state of each chat via the `chat_modes` global dictionary.
-     - **File:** `bot_manager.py`
-     - **Responsibility:** Handles the registration, retrieval, and deletion of bot configurations.
-     - **File:** `clients/factory.py`
-     - **Responsibility:** Implements the factory pattern to instantiate the correct chat client (`telegram`, `webex`) based on the user's selection.
-     - **File:** `clients/telegram_client_impl.py`
-     - **Responsibility:** Implements the **user client** for Telegram using Telethon. This client is responsible for reading chat history and requires a `.session` file for stateful authentication.
-     - **File:** `clients/telegram_bot_client_impl.py`
-     - **Responsibility:** Implements the stateless **bot client** for Telegram using `httpx` and the Bot API. This client is used for sending messages back to the user.
-     - **File:** `ai/prompts.py`
-     - **Responsibility:** Contains the system prompts used by the AI. This includes the `UNIFIED_SYSTEM_PROMPT` for summarization and the `GENERAL_AI_SYSTEM_PROMPT` for the conversational AI mode.
-   - **Telegram Bot Architecture:**
-     - The system uses a dual-client architecture for the Telegram bot:
-       - **User Client (Telethon):** A stateful client used for reading chat history. It authenticates using a `.session` file.
-       - **Bot Client (httpx):** A stateless client that uses the Telegram Bot API to send messages.
-   - **Stateful Bot Logic:**
-     - The `chat_modes` global dictionary in `app.py` tracks the current mode (`summarizer` or `aimode`) for each chat, allowing the bot to maintain state across interactions.
-   - **/aimode Feature:**
-     - The `_process_telegram_bot_command` function in `app.py` acts as a dispatcher.
-     - It handles the `/aimode` command, toggling the chat's mode in the `chat_modes` dictionary.
-     - Based on the current mode, it delegates to either `_handle_summarizer_mode` or `_handle_ai_mode`.
-   - **Dynamic Prompts:**
-     - The `call_conversational` method in the AI logic dynamically selects a system prompt.
-     - If the `original_messages` parameter is provided, it uses the `UNIFIED_SYSTEM_PROMPT` for summarization.
-     - Otherwise, it uses the `GENERAL_AI_SYSTEM_PROMPT` for conversational AI.
-   - **Caching Architecture:**
-     - The application employs a two-layer caching strategy to optimize performance and reduce API calls.
-       - **Layer 1: File-Based Cache (Retrieval Cache):**
-         - **Purpose:** To store the raw, unprocessed message data fetched from platform APIs (Telegram/Webex). This minimizes direct API calls to external services.
-         - **Location:** `cache/<platform>/<user_id>/<chat_id>/<date>.json`
-         - **Logic:** This cache is only used for days in the past. It correctly identifies that today's messages are mutable and always fetches them live, preventing the caching of incomplete or changing data.
-       - **Layer 2: In-Memory Cache (Processing Cache):**
-         - **Purpose:** To store the fully processed and formatted message data that is ready to be sent to the AI model. This avoids the CPU cost of repeatedly formatting the same data.
-         - **Location:** A global dictionary in `app.py`.
-         - **Logic:** This cache is keyed by the session token and the exact date range of the request. It is only used if the requested date range does *not* include the current day, ensuring that analyses involving today's data are always performed on the freshest information.
+  - **Key Modules/Components:**
+    - **File:** `app.py`
+      - Orchestration, API routers, session handling, streaming normalization via [`python.app._normalize_stream()`](app.py:73).
+      - **Transcript Packaging:** [`python.app._format_messages_for_llm()`](app.py:401) builds a single packaged “Context: Chat History (Local Day)” user message with thread markers, author/timestamp headers, explicit image markers, and adjacent caption grounding. Images are represented as structured parts with metadata and are paired with captions to improve grounding.
+      - **/api/chat:** Applies image processing settings from the UI, forwards user’s IANA timezone to clients, performs in-memory caching for historical ranges, and streams LLM output.
+    - **File:** `clients/factory.py` — Resolves platform clients based on backend param.
+    - **File:** `clients/telegram_client_impl.py`
+      - Reads history with Telethon, reconstructs threads by reply-chain root resolution, assigns stable `thread_id`, orders orphan chains deterministically, honors image processing limits, groups/caches by local-day. See [`python.clients.telegram_client_impl.get_messages()`](clients/telegram_client_impl.py:144).
+    - **File:** `clients/webex_client_impl.py`
+      - Uses native thread IDs, performs local-day grouping/caching with ZoneInfo(timezone), optional image download with HEAD pre-checks, and pagination until window satisfied. See [`python.clients.webex_client_impl.get_messages()`](clients/webex_client_impl.py:137).
+    - **File:** `ai/prompts.py`
+      - Defines `UNIFIED_SYSTEM_PROMPT` describing transcript packaging at the start; removes any instruction to add packaging notes in outputs.
+    - **File:** `ai/openai_compatible_llm.py`
+      - Formats mixed text/image parts into OpenAI-compatible payloads; streams deltas via SSE/HTTPX; handles multimodal parts.
+  - **Telegram Bot Architecture:**
+    - Dual-client: stateful Telethon for reading; stateless Bot API for sending.
+  - **Stateful Bot Logic:**
+    - `chat_modes` in `app.py` toggles summarizer vs `/aimode`.
+   - **Caching Architecture (Local-Day Semantics):**
+     - The user’s browser timezone (IANA tz) is used for filtering, grouping, and per-day cache keys across Webex and Telegram, while preserving each provider’s API pagination.
+     - File-based retrieval cache: `cache/<platform>/<user_id>/<chat_id>/<date>.json` (past days only).
+     - In-memory processing cache: keyed by session token and date range; bypassed when the range includes “today” in the user’s local timezone.
 
 **6. API & External Interactions**
-   - **Internal APIs:**
-     - `POST /api/login`: Initiates the login process for a given backend (Telegram or Webex).
-     - `GET /api/chats`: Fetches the list of available chats for the authenticated user.
-     - `POST /api/chat`: The main endpoint for performing AI analysis on a selected chat.
-     - `POST /api/{backend}/bots`: Registers a new bot for the specified backend.
-     - `GET /api/{backend}/bots`: Retrieves the list of registered bots for a backend.
-     - `DELETE /api/{backend}/bots/{bot_name}`: Deletes a registered bot.
-     - `POST /api/bot/webex/webhook`: The public endpoint that receives webhook notifications from Webex when a bot is mentioned.
-     - `POST /api/bot/telegram/webhook/{bot_token}`: The public endpoint that receives webhook notifications from Telegram.
-   - **External Services:**
-     - Telegram API
-     - Webex API
-     - Google AI API (or any other configured LLM)
+  - `/api/login` (Telegram: phone-based code flow; Webex: OAuth redirect)
+  - `/api/session-status` validates active sessions and clears caches on invalidation
+  - `/api/chats` lists available rooms/chats for the active backend
+  - `/api/chat` summarizes using single-message transcript + conversation; streams output
+  - `/api/download` exports threaded transcript (PDF/TXT)
+  - `/api/clear-session`, `/api/logout` clear caches/sessions
+  - `/api/webex/bots` and `/api/telegram/bots` manage bot registration
+  - `/api/bot/webex/webhook` and `/api/bot/telegram/webhook/{token}` receive bot events
 
 **7. Configuration & Environment**
-   - **Configuration Files:** `config.json`
-   - **Environment Variables:** See `config.json` for a list of required variables.
+  - `config.json`:
+    - `openai_compatible`: endpoints and model defaults
+    - `google_ai`: optional config for Gemini
+    - `webex`: OAuth credentials, scopes, and optional `image_processing` defaults
+    - `bots`: optional predefined bots
+  - Environment variables: HOST, PORT, RELOAD
+  - Sessions persisted at `sessions/app_sessions.json`
 
 **8. Testing**
-   - **Testing Frameworks:** Not yet implemented.
-   - **Test Location:** Not yet implemented.
-   - **How to Run Tests:** Not yet implemented.
+  - Pending: unit tests for threading reconstruction, image gating, and timezone bucketing.
+  - Suggested: golden transcripts for complex Telegram threads; media MIME/size matrix tests; cross-day window tests.
 
 **9. Missing Information & Inferences**
-   - The project lacks a formal testing suite.
-
+  - Formal test suite pending.
+  - Logging: add trace points for thread root resolution, orphan ordering, and media inclusion/exclusion decisions.
 
 **Developer Notes:**
+- Keep streaming implementation aligned with frontend expectations; avoid unverified streaming refactors.
 
-*   **Attempted Fixes (2025-07-24):** An attempt was made to fix various Pylance warning in `app.py` related to an not having an `await` call on a stream. This change, while technically correct, caused the UI to stop updating. A subsequent attempt to fix the streaming response format also failed. These fixes should not be attempted again without a deeper investigation into the frontend's handling of the stream.

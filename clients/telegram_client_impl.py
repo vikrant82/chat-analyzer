@@ -12,7 +12,7 @@ from telethon.sync import TelegramClient
 from telethon.errors import SessionPasswordNeededError, RPCError, FloodWaitError
 from telethon.tl.types import User as TelethonUser, Channel as TelethonChannel
 
-from .base_client import ChatClient, Chat, Message, User
+from .base_client import ChatClient, Chat, Message, User, Attachment
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +145,17 @@ class TelegramClientImpl(ChatClient):
         # Align behavior with user-local day semantics (e.g., IST) similar to Webex fix
         user_tz = ZoneInfo(timezone_str) if timezone_str else ZoneInfo("UTC")
 
+        # Resolve image processing toggles (UX/global config + per-request)
+        # Defaults: disabled unless explicitly enabled by UX/config
+        final_image_settings = {
+            "enabled": False,
+            "max_size_bytes": 0,
+            "allowed_mime_types": []
+        }
+        # Merge per-request if provided
+        if isinstance(image_processing_settings, dict):
+            final_image_settings.update({k: v for k, v in image_processing_settings.items() if v is not None})
+
         # Local start/end-of-day (inclusive) for the requested dates
         start_dt_local = datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=user_tz)
         end_dt_local = datetime.strptime(end_date_str, '%Y-%m-%d').replace(tzinfo=user_tz) + timedelta(days=1, microseconds=-1)
@@ -206,7 +217,7 @@ class TelegramClientImpl(ChatClient):
                     return []
 
                 logger.info(f"Fetching messages with offset_date={fetch_end_utc.isoformat()} and reverse=False")
-                async for message in client.iter_messages(target_entity, limit=200, offset_date=fetch_end_utc, reverse=False):
+                async for message in client.iter_messages(target_entity, limit=500, offset_date=fetch_end_utc, reverse=False):
                     # Telethon message.date is naive in UTC; make it aware
                     msg_date_utc = message.date.replace(tzinfo=timezone.utc)
 
@@ -221,8 +232,12 @@ class TelegramClientImpl(ChatClient):
                     
                     #logger.info(f"Full message object: {message.to_json()}")
     
-                    if not message.text:
-                        logger.info(f"Message {message.id} does not have text, skipping.")
+                    # Detect textual content or media; keep messages that have any user-perceivable content
+                    has_text = bool(getattr(message, "message", None) or getattr(message, "text", None))
+                    # Telethon exposes media on .media and convenience flags; use .media for robustness
+                    has_media = bool(getattr(message, "media", None))
+                    if not (has_text or has_media):
+                        logger.info(f"Message {message.id} has no text or media, skipping.")
                         continue
     
                     #logger.info(f"Message {message.id} has text: '{message.text[:50]}...'")
@@ -239,12 +254,51 @@ class TelegramClientImpl(ChatClient):
                     if message.reply_to and message.reply_to.reply_to_msg_id:
                         reply_to_id = str(message.reply_to.reply_to_msg_id)
 
+                    # Build attachments if media present; honor image processing settings (enabled + size cap)
+                    attachments: List[Attachment] = []
+                    try:
+                        # Skip entirely if disabled
+                        if final_image_settings.get("enabled", False) and getattr(message, "media", None):
+                            import base64
+                            from io import BytesIO
+                            buf = BytesIO()
+                            # Telethon writes bytes to BinaryIO when file is a stream
+                            await client.download_media(message, file=buf)
+                            data_bytes = buf.getvalue() or b""
+                            # Enforce max size if configured (>0)
+                            max_size = int(final_image_settings.get("max_size_bytes") or 0)
+                            if max_size > 0 and len(data_bytes) > max_size:
+                                logger.info(f"Skipping media for message {message.id}: {len(data_bytes)} bytes exceeds cap {max_size} bytes")
+                            elif len(data_bytes) > 0:
+                                # Infer MIME using magic numbers
+                                mime = "application/octet-stream"
+                                sig4 = bytes(data_bytes[:4])
+                                if sig4.startswith(b"\x89PNG"):
+                                    mime = "image/png"
+                                elif sig4.startswith(b"\xFF\xD8\xFF"):
+                                    mime = "image/jpeg"
+                                elif data_bytes[:6] in (b"GIF89a", b"GIF87a"):
+                                    mime = "image/gif"
+                                elif data_bytes[:4] == b"RIFF" and data_bytes[8:12] == b"WEBP":
+                                    mime = "image/webp"
+
+                                # Filter by allowed_mime_types if provided
+                                allowed = final_image_settings.get("allowed_mime_types") or []
+                                if allowed and mime not in allowed:
+                                    logger.info(f"Skipping media for message {message.id}: MIME {mime} not allowed")
+                                else:
+                                    encoded = base64.b64encode(data_bytes).decode("utf-8")
+                                    attachments.append(Attachment(mime_type=mime, data=encoded))
+                    except Exception as e:
+                        logger.warning(f"Failed to process media for message {message.id}: {e}", exc_info=True)
+
                     newly_fetched_messages.append(Message(
                         id=str(message.id),
-                        text=message.text,
+                        text=(getattr(message, "message", None) or getattr(message, "text", None)),
                         author=User(id=author_id, name=author_name),
                         timestamp=message.date.isoformat(),
                         thread_id=reply_to_id,  # temporary; will be replaced by resolved thread root id
+                        attachments=attachments if attachments else None,
                     ))
 
             all_messages.extend(newly_fetched_messages)

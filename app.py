@@ -357,9 +357,9 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
             "end_date_str": req.endDate,
             "enable_caching": req.enableCaching,
             "timezone_str": req.timezone,
+            # Pass image processing to all backends (Webex/Telegram)
+            "image_processing_settings": req.imageProcessing,
         }
-        if backend == 'webex':
-            get_messages_kwargs["image_processing_settings"] = req.imageProcessing
 
         messages_list: List[StandardMessage] = await chat_client.get_messages(**get_messages_kwargs)
         if not messages_list:
@@ -486,7 +486,8 @@ def _format_messages_for_llm(messages: List[StandardMessage]) -> List[Dict[str, 
                 ts = meta.get("timestamp", "unknown")
                 transcript_lines.append(f"  - Image #{idx}: author={author}; at={ts}")
 
-    full_text = "Context: Chat History (IST)\n" + "\n".join(transcript_lines)
+    # Use a timezone-agnostic label; the UI/browser already supplies IANA tz for local-day bucketing
+    full_text = "Context: Chat History (Local Day)\n" + "\n".join(transcript_lines)
     parts.append({"type": "text", "text": full_text})
     parts.extend(image_parts_in_order)
 

@@ -264,7 +264,7 @@ function handleBackendChange() {
     // Also handle the main backend selector
     if(backendSelectMain) {
         const selectedBackend = backendSelectMain.value;
-        imageSettings.style.display = selectedBackend === 'webex' ? 'block' : 'none';
+        imageSettings.style.display = 'block';
     }
 }
 

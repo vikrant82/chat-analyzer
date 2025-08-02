@@ -1,22 +1,55 @@
-# Session on 2025-08-02T14:31:54+05:30 IST
+# Session on 2025-08-02T21:53:48+05:30 (Local Day)
+
+### Key Accomplishments
+- Telegram threading preservation and reconstruction
+  - Reconfirmed and documented the reply-chain reconstruction strategy in [`python.TelegramClientImpl.get_messages()`](clients/telegram_client_impl.py:144) and transcript packaging in [`python.app._format_messages_for_llm()`](app.py:0). Threads are reconstructed by resolving reply-chain roots, assigning a stable `thread_id` to the root, and grouping replies under that root. Orphaned chains are grouped by first-reply timestamp for deterministic ordering.
+  - Transcript packaging emits explicit thread boundaries (“--- Thread Started/Ended ---”) and reply context hints for the LLM.
+- Global image processing options (provider-agnostic)
+  - UI exposes Image Processing Options for all providers; backend applies the same configuration to Telegram and Webex. Images are optionally downloaded, size/mime-gated, base64-encoded, and provided to multimodal models as structured `image_url` parts with adjacent caption grounding. See [`javascript.UI script`](static/script.js:0) and [`python.app.chat endpoint`](app.py:0).
+- Local-day bucketing and caching (timezone-agnostic)
+  - Local-day semantics are applied based on the user’s browser timezone (IANA tz, e.g., Asia/Kolkata) for day filtering, grouping, and per-day caching keys while preserving each provider’s native pagination. Removed IST-specific wording. See [`python.WebexClientImpl.get_messages()`](clients/webex_client_impl.py:137) and [`python.TelegramClientImpl.get_messages()`](clients/telegram_client_impl.py:144).
+- Prompt refinements
+  - [`python.UNIFIED_SYSTEM_PROMPT`](ai/prompts.py:0) now explains the single-message transcript packaging up front, including thread markers and image markers, and removes any requirement for output-end packaging notes.
+
+### Documentation Updates
+- Updated [`markdown.overview.md`](overview.md:1) to explicitly call out:
+  - Telegram threading reconstruction and its benefit to reduce interleaving confusion.
+  - Global image processing options as provider-agnostic.
+  - The unified single-message transcript packaging described in the system prompt.
+- Added short notes to:
+  - [`markdown.webex_bot_guide.md`](webex_bot_guide.md:1): Mentions threading context preservation and image-processing behavior at a glance.
+  - [`markdown.telegram_bot_guide.md`](telegram_bot_guide.md:1): Mentions threading reconstruction, why it matters for Telegram, and that images can be included subject to limits.
+
+### Next Validation Steps
+- Validate with Telegram chats:
+  - Interleaved reply chains and long chains for correct root resolution and ordering.
+  - Images/stickers/GIFs under various size and MIME settings.
+  - Cross-day ranges to confirm stable caching keys and local-root behavior.
+- Add minimal logging for:
+  - Thread root decisions and orphan handling.
+  - Media inclusion/exclusion outcomes (enabled, size exceeded, MIME filtered).
+
+---
+
+# Session on 2025-08-02T14:31:54+05:30 (Local Day)
 
 ### Key Accomplishments:
-- Webex date handling aligned to user-local timezone (IST) semantics
-  - Implemented local-day filtering, grouping, and caching in [`python.WebexClientImpl.get_messages()`](clients/webex_client_impl.py:137), using start/end as IST-inclusive day range, converting messages to IST before bucketing, and determining "today" in IST.
+- Webex date handling aligned to user-local timezone semantics
+  - Implemented local-day filtering, grouping, and caching in [`python.WebexClientImpl.get_messages()`](clients/webex_client_impl.py:137), using start/end as user-local inclusive day range, converting messages to the user’s timezone before bucketing, and determining "today" in the user’s local timezone (IANA tz from browser).
   - Preserved Webex API pagination while switching comparisons to local-day windows.
-- Telegram date handling made consistent with Webex and IST
-  - Updated [`python.TelegramClientImpl.get_messages()`](clients/telegram_client_impl.py:144) to use IST-local day windows, group/cache by local days, treat Telethon message timestamps as UTC if naive, and compute cacheability by IST "today".
-- Verified behavior against user-provided screenshots and UX inputs: date selections in IST now include messages exactly as shown in Webex for those days.
+- Telegram date handling made consistent with Webex and user-local timezone
+  - Updated [`python.TelegramClientImpl.get_messages()`](clients/telegram_client_impl.py:144) to use user-local day windows, group/cache by local days, treat Telethon message timestamps as UTC if naive, and compute cacheability by the user’s local “today”.
+- Verified behavior against user-provided screenshots and UX inputs: date selections in local-day now include messages exactly as shown for those days.
 - No changes to message sorting format; ISO 8601 strings remain stable, with option to harden later by sorting on parsed datetimes.
 
 ### Decisions:
-- Standardize all backends on user-local (IST) day semantics for:
+- Standardize all backends on user-local day semantics (based on browser-provided IANA timezone) for:
   - Request range interpretation
   - Inclusion filtering
   - Per-day caching keys and cacheability
 - Keep provider API pagination unchanged; only adjust comparison windows to local-day equivalents.
 
-# Session on Wednesday, July 30, 2025, 9:15 PM IST
+# Session on Wednesday, July 30, 2025, 9:15 PM (Local Day)
 
 ### Key Accomplishments:
 
@@ -34,7 +67,7 @@
 
 ---
 
-# Session on Wednesday, July 30, 2025, 4:44 AM IST
+# Session on Wednesday, July 30, 2025, 4:44 AM (Local Day)
 
 ### Key Accomplishments:
 

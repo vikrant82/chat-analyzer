@@ -2,6 +2,10 @@
 
 This guide provides step-by-step instructions for creating, configuring, and using a Telegram bot with the Chat Analyzer application.
 
+Important:
+- Threading preservation: Telegram does not have native threads like Webex. The app reconstructs threads by following reply chains, selecting a root, and grouping replies under that root. Summaries and exports include explicit “Thread Started/Ended” markers to reduce interleaving confusion in busy groups.
+- Image processing: Images from Telegram can be included in the analysis when the global Image Processing option is enabled and media passes size/MIME checks.
+
 ## 1. Creating Your Telegram Bot
 
 All Telegram bots are created and managed through a special bot called `@BotFather`.

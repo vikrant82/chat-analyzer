@@ -13,8 +13,10 @@ The application features a robust caching system to ensure fast, repeated analys
     -   Ask follow-up questions without re-submitting the initial query.
     -   The AI maintains context throughout the conversation.
 -   **AI-Powered Analysis & Bot Integration**:
-    -   **Threaded Conversation Support**: Automatically detects and groups threaded conversations in Webex, providing the LLM with the full context of the conversation.
-    -   **Configurable Image Analysis (Webex)**: Enable or disable image processing, set maximum file sizes, and control which MIME types are analyzed to manage costs and performance.
+    -   **Threaded Conversation Support (Webex + Telegram)**: Preserves native threading context end-to-end.
+        - Webex: Groups by parent/threadId as before.
+        - Telegram: Reconstructs reply-quote chains to deterministically resolve a thread root, keeps roots as top-level, and orders replies under the correct root. This eliminates the common confusion of interleaved Telegram replies by presenting coherent threads to the LLM and in downloads.
+    -   **Configurable Image Analysis (All Providers)**: Globally enable/disable image processing from the UI, set maximum file sizes, and optionally control allowed MIME types. Images are downloaded (when enabled), validated by size/type, and provided to multimodal models alongside adjacent caption context for stronger grounding.
     -   **Webex Bot Support**: Register a Webex bot to invoke the analyzer directly from any Webex space. The bot leverages the permissions of the logged-in user to access and summarize chat history.
     -   **Telegram Bot Support**: Register a Telegram bot and interact with it directly to get summaries of any chat your user account is in.
     -   Mention the bot (e.g., `@MyAnalyzerBot summarize last 2 days`) to get an instant summary.
@@ -29,12 +31,13 @@ The application features a robust caching system to ensure fast, repeated analys
 -   **Intelligent Caching System**:
     -   **Configurable**: Users can enable or disable caching. Both file-based and in-memory caches respect this setting.
     -   Dramatically speeds up analysis of historical data.
-    -   Caches messages on a per-day, per-chat basis.
+    -   Caches messages on a per-day, per-chat basis using IST local-day semantics for consistent bucketing across Webex and Telegram.
     -   Caches "empty" days to prevent redundant API calls for periods with no activity.
-    -   Always fetches fresh data for "today" to ensure summaries are up-to-date.
+    -   Always fetches fresh data for "today" (by IST) to ensure summaries are up-to-date.
 -   **User-Friendly Interface**:
     -   **Searchable Chat List**: Quickly find the chat you're looking for.
-    -   **Modern Date Picker**: A modern, dark-theme friendly date picker.
+    -   **Modern Date Picker**: A modern, dark-theme friendly date picker (IST-based day ranges).
+    -   **Global Image Options**: One place to toggle image analysis and size caps for any provider.
     -   Simple, step-by-step process: Login -> Select Chat -> Analyze.
     -   **Bot Management UI**: A simple interface to register, view, and delete your bots.
     -   **Automated Webhook Setup**: Automatically registers the necessary webhook with Webex when you provide a public URL, simplifying setup.
@@ -298,15 +301,16 @@ Once logged in, you will be on the "Analyze Chats" screen.
 
 1.  **Select a Chat**: Your chats/rooms will be listed in the searchable dropdown. If the list is empty, click the **"Refresh List"** link to load them.
 2.  **Select an AI Model**: Choose your preferred AI model from the list. A sensible default will be pre-selected if configured.
-3.  **Select a Date Range**: Use the date picker to choose the start and end dates. You can also select from pre-defined ranges like "Last 2 Days", "Last Week", etc.
+3.  **Select a Date Range**: Use the date picker to choose the start and end dates. You can also select from pre-defined ranges like "Last 2 Days", "Last Week", etc. Date ranges are interpreted by IST local-day semantics.
 4.  **Configure Caching**: Use the "Enable caching for faster analysis" checkbox to enable or disable caching for the current analysis.
-5.  **Configure Image Processing (Webex only)**: When connected to Webex, you can control image analysis for the current request.
-    -   **Analyze images in chat**: Uncheck this to disable image processing for this session.
-    -   **Max image size (MB)**: Set a size limit for images to be analyzed.
+5.  **Configure Image Processing**: Globally toggle image analysis and set a maximum image size (MB); applies to all providers.
 6.  **(Optional) Start with a Specific Question**: Before starting the chat, you can enter a specific question in the text box. If you do, the AI will answer that question directly instead of providing a general summary.
 7.  **Start Chat**: Click the **"Start Chat"** button to begin the analysis and open the conversational chat window.
 7.  **Ask Follow-up Questions**: Use the chat input to ask follow-up questions about the analyzed data.
 8.  **Clear & Start New**: Click the **"Clear & Start New"** button to clear the conversation and start a new analysis.
+
+#### About Threading (Why this matters for Telegram)
+Telegram conversations often interleave replies across multiple topics, making it hard to follow context. The analyzer reconstructs Telegram reply chains, assigns a deterministic thread root, and presents replies under the correct root—resulting in coherent threads for summaries and Q&A. This dramatically reduces confusion when analyzing busy Telegram groups.
 
 ### Using the Webex Bot
 

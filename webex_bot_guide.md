@@ -2,6 +2,11 @@
 
 This guide provides step-by-step instructions for creating a Webex bot, registering it with the Chat Analyzer, and making it available for users.
 
+Note:
+- Threading context is preserved in summaries. Webex native thread IDs are grouped, and the transcript includes explicit thread boundary markers so responses remain thread-aware.
+- Image processing is supported and configurable globally (enabled flag, max size, optional allowed MIME types). When enabled, images may be included in analysis if within limits.
+- Date handling uses a local-day concept based on the user’s browser timezone (IANA tz).
+
 ## 1. Creating a Webex Bot
 
 First, you need to create a new bot in the Webex Developer Portal.
