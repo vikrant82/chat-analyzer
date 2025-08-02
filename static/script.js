@@ -510,6 +510,7 @@ async function callChatApi(message = null) {
             endDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[1]),
             enableCaching: cacheChatsToggle.checked,
             conversation: appState.conversation,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             imageProcessing: {
                 enabled: imageProcessingToggle.checked,
                 max_size_bytes: parseInt(maxImageSize.value) * 1024 * 1024,

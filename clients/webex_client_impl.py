@@ -3,6 +3,7 @@ import base64
 import httpx
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from .base_client import ChatClient, Chat, Message, User, Attachment
 from WebexClient import WebexClient
 import json
@@ -133,55 +134,69 @@ class WebexClientImpl(ChatClient):
         ]
         return chats
 
-    async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str, enable_caching: bool = True, image_processing_settings: Optional[Dict[str, Any]] = None) -> List[Message]:
-        start_dt = datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
-        end_dt = datetime.strptime(end_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc) + timedelta(days=1, microseconds=-1)
-        today_dt = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str, enable_caching: bool = True, image_processing_settings: Optional[Dict[str, Any]] = None, timezone_str: Optional[str] = None) -> List[Message]:
+        # Determine user's timezone for local-day semantics
+        user_tz = ZoneInfo(timezone_str) if timezone_str else ZoneInfo("UTC")
+
+        # Parse requested dates as local (user timezone) start/end of day
+        start_dt_local = datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=user_tz)
+        # inclusive local end-of-day
+        end_dt_local = datetime.strptime(end_date_str, '%Y-%m-%d').replace(tzinfo=user_tz) + timedelta(days=1, microseconds=-1)
+
+        # Also compute UTC equivalents for pagination/window checks if needed later
+        start_dt_utc = start_dt_local.astimezone(timezone.utc)
+        end_dt_utc = end_dt_local.astimezone(timezone.utc)
+
+        # Today boundary in user's local timezone (midnight local)
+        today_local = datetime.now(user_tz).replace(hour=0, minute=0, second=0, microsecond=0)
 
         all_messages = []
-        dates_to_fetch_from_api = []
+        dates_to_fetch_from_api_local = []
 
-        current_day = start_dt
-        while current_day <= end_dt:
-            is_cacheable = current_day < today_dt
-            cache_path = self._get_cache_path(user_identifier, chat_id, current_day)
+        # Iterate days by local calendar days
+        current_day_local = start_dt_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        last_day_local = end_dt_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        while current_day_local <= last_day_local:
+            is_cacheable = current_day_local < today_local
+            cache_path = self._get_cache_path(user_identifier, chat_id, current_day_local)
             
             if enable_caching and is_cacheable and os.path.exists(cache_path):
-                logger.info(f"Cache HIT for Webex chat {chat_id} on {current_day.date()}")
+                logger.info(f"Cache HIT for Webex chat {chat_id} on {current_day_local.date()}")
                 with open(cache_path, 'r') as f:
                     try:
                         raw_msgs = json.load(f)
                         all_messages.extend([Message(**msg) for msg in raw_msgs])
                     except json.JSONDecodeError:
                         logger.warning(f"Cache file {cache_path} is corrupted. Re-fetching.")
-                        dates_to_fetch_from_api.append(current_day)
+                        dates_to_fetch_from_api_local.append(current_day_local)
             else:
-                dates_to_fetch_from_api.append(current_day)
+                dates_to_fetch_from_api_local.append(current_day_local)
             
-            current_day += timedelta(days=1)
+            current_day_local += timedelta(days=1)
         
-        if dates_to_fetch_from_api:
+        if dates_to_fetch_from_api_local:
             # Combine global config with per-request settings
             final_image_settings = self.image_processing_config.copy()
             if image_processing_settings:
                 final_image_settings.update(image_processing_settings)
             logger.info(f"Image processing settings for this request: {final_image_settings}")
 
-            logger.info(f"Cache MISS for Webex chat {chat_id}. Fetching messages from API back to {start_dt.date()}.")
-            
+            logger.info(f"Cache MISS for Webex chat {chat_id}. Fetching messages from API back to {start_dt_local.date()} (local).")
+
             all_fetched_raw_messages = []
-            oldest_message_dt = datetime.now(timezone.utc)
-            fetch_start_dt = dates_to_fetch_from_api[0]
+            oldest_message_dt_utc = datetime.now(timezone.utc)
+            # Pagination threshold: oldest message must be later than start of requested local window (converted to UTC)
+            fetch_start_dt_utc = start_dt_utc
             
             params = {"room_id": chat_id, "max": 1000}
 
-            while oldest_message_dt > fetch_start_dt:
+            while oldest_message_dt_utc > fetch_start_dt_utc:
                 logger.info(f"Fetching a batch of Webex messages for room {chat_id} before {params.get('before', 'now')}")
                 try:
                     raw_batch = self.api.get_messages(**params)
                 except Exception as e:
                     logger.error(f"Failed to fetch message batch for Webex room {chat_id}: {e}", exc_info=True)
-                    break 
+                    break
 
                 if not raw_batch:
                     logger.info(f"No more messages found for Webex room {chat_id}. Stopping pagination.")
@@ -190,25 +205,29 @@ class WebexClientImpl(ChatClient):
                 all_fetched_raw_messages.extend(raw_batch)
                 
                 oldest_message_in_batch_raw = raw_batch[-1]
-                oldest_message_dt = datetime.fromisoformat(oldest_message_in_batch_raw['created'].replace('Z', '+00:00'))
+                oldest_message_dt_utc = datetime.fromisoformat(oldest_message_in_batch_raw['created'].replace('Z', '+00:00'))
                 params['before'] = oldest_message_in_batch_raw['created']
 
                 if len(raw_batch) < 2:
                      logger.info("Fetched a batch with less than 2 messages, assuming end of history.")
                      break
 
-            grouped_by_day = {}
+            # Group by LOCAL day
+            grouped_by_day_local: Dict[datetime, List[Message]] = {}
             for msg_raw in all_fetched_raw_messages:
                 # A message must have text OR files to be considered
                 if not msg_raw.get('text') and not msg_raw.get('files'):
                     continue
                 
-                msg_dt = datetime.fromisoformat(msg_raw['created'].replace('Z', '+00:00'))
-                msg_day = msg_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+                # Parse as aware UTC, convert to user's timezone
+                msg_dt_utc = datetime.fromisoformat(msg_raw['created'].replace('Z', '+00:00'))
+                msg_dt_local = msg_dt_utc.astimezone(user_tz)
+                msg_day_local = msg_dt_local.replace(hour=0, minute=0, second=0, microsecond=0)
 
-                if start_dt <= msg_day <= end_dt:
-                    if msg_day not in grouped_by_day:
-                        grouped_by_day[msg_day] = []
+                # Filter by local window
+                if start_dt_local <= msg_dt_local <= end_dt_local:
+                    if msg_day_local not in grouped_by_day_local:
+                        grouped_by_day_local[msg_day_local] = []
                     
                     attachments = []
                     if msg_raw.get('files'):
@@ -228,17 +247,17 @@ class WebexClientImpl(ChatClient):
                             thread_id=msg_raw.get('parentId'),
                             attachments=attachments if attachments else None
                         )
-                        grouped_by_day[msg_day].append(message)
+                        grouped_by_day_local[msg_day_local].append(message)
 
-            for day_to_cache in dates_to_fetch_from_api:
-                messages_for_this_day = grouped_by_day.get(day_to_cache, [])
+            for day_to_cache_local in dates_to_fetch_from_api_local:
+                messages_for_this_day = grouped_by_day_local.get(day_to_cache_local, [])
                 
                 all_messages.extend(messages_for_this_day)
                 
-                if day_to_cache < today_dt and enable_caching:
-                    cache_path = self._get_cache_path(user_identifier, chat_id, day_to_cache)
+                if day_to_cache_local < today_local and enable_caching:
+                    cache_path = self._get_cache_path(user_identifier, chat_id, day_to_cache_local)
                     with open(cache_path, 'w') as f:
-                        logger.info(f"Caching {len(messages_for_this_day)} messages for Webex on {day_to_cache.date()} at {cache_path}")
+                        logger.info(f"Caching {len(messages_for_this_day)} messages for Webex on {day_to_cache_local.date()} at {cache_path}")
                         json.dump([msg.model_dump() for msg in messages_for_this_day], f)
 
         # Group messages by thread_id

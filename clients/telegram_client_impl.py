@@ -6,6 +6,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import List, Dict, Any, AsyncGenerator, Optional
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 from telethon.sync import TelegramClient
 from telethon.errors import SessionPasswordNeededError, RPCError, FloodWaitError
@@ -140,38 +141,51 @@ class TelegramClientImpl(ChatClient):
                 ))
         return chats
 
-    async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str, enable_caching: bool = True, image_processing_settings: Optional[Dict[str, Any]] = None) -> List[Message]:
-        start_dt = datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
-        end_dt = datetime.strptime(end_date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc) + timedelta(days=1, microseconds=-1)
-        today_dt = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str, enable_caching: bool = True, image_processing_settings: Optional[Dict[str, Any]] = None, timezone_str: Optional[str] = None) -> List[Message]:
+        # Align behavior with user-local day semantics (e.g., IST) similar to Webex fix
+        user_tz = ZoneInfo(timezone_str) if timezone_str else ZoneInfo("UTC")
+
+        # Local start/end-of-day (inclusive) for the requested dates
+        start_dt_local = datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=user_tz)
+        end_dt_local = datetime.strptime(end_date_str, '%Y-%m-%d').replace(tzinfo=user_tz) + timedelta(days=1, microseconds=-1)
+
+        # UTC equivalents for API boundaries
+        start_dt_utc = start_dt_local.astimezone(timezone.utc)
+        end_dt_utc = end_dt_local.astimezone(timezone.utc)
+
+        # Today boundary in local tz for cacheability
+        today_local = datetime.now(user_tz).replace(hour=0, minute=0, second=0, microsecond=0)
         
         all_messages = []
-        dates_to_fetch_from_api = []
+        dates_to_fetch_from_api_local = []
         
-        current_day = start_dt
-        while current_day <= end_dt:
-            is_cacheable = current_day < today_dt
-            cache_path = self._get_cache_path(user_identifier, chat_id, current_day)
+        # Iterate local calendar days for cache keys and decisions
+        current_day_local = start_dt_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        last_day_local = end_dt_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        while current_day_local <= last_day_local:
+            is_cacheable = current_day_local < today_local
+            cache_path = self._get_cache_path(user_identifier, chat_id, current_day_local)
             
             if is_cacheable and os.path.exists(cache_path):
-                logger.info(f"Cache HIT for Telegram chat {chat_id} on {current_day.date()}")
+                logger.info(f"Cache HIT for Telegram chat {chat_id} on {current_day_local.date()}")
                 with open(cache_path, 'r') as f:
                     try:
                         raw_msgs = json.load(f)
                         all_messages.extend([Message(**msg) for msg in raw_msgs])
                     except json.JSONDecodeError:
                         logger.warning(f"Cache file {cache_path} is corrupted. Re-fetching.")
-                        dates_to_fetch_from_api.append(current_day)
+                        dates_to_fetch_from_api_local.append(current_day_local)
             else:
-                dates_to_fetch_from_api.append(current_day)
+                dates_to_fetch_from_api_local.append(current_day_local)
             
-            current_day += timedelta(days=1)
+            current_day_local += timedelta(days=1)
 
-        if dates_to_fetch_from_api:
-            fetch_start = dates_to_fetch_from_api[0]
-            fetch_end = dates_to_fetch_from_api[-1] + timedelta(days=1, microseconds=-1)
+        if dates_to_fetch_from_api_local:
+            # UTC window for fetching; Telethon's offset_date expects aware dt, we pass end in UTC
+            fetch_start_utc = start_dt_utc
+            fetch_end_utc = end_dt_utc
 
-            logger.info(f"Cache MISS for Telegram chat {chat_id}. Fetching from {fetch_start.date()} to {fetch_end.date()}.")
+            logger.info(f"Cache MISS for Telegram chat {chat_id}. Fetching local-window {start_dt_local.date()}..{end_dt_local.date()} (offset_date={fetch_end_utc.isoformat()}).")
 
             newly_fetched_messages = []
             async with telegram_api_client(user_identifier) as client:
@@ -191,14 +205,14 @@ class TelegramClientImpl(ChatClient):
                     logger.error(f"Error resolving entity '{chat_id}': {e}", exc_info=True)
                     return []
 
-                logger.info(f"Fetching messages with offset_date={fetch_end.isoformat()} and reverse=False")
-                async for message in client.iter_messages(target_entity, limit=200, offset_date=fetch_end, reverse=False):
-                    #logger.info(f"Processing message {message.id} from {message.date.isoformat()}")
-                    
+                logger.info(f"Fetching messages with offset_date={fetch_end_utc.isoformat()} and reverse=False")
+                async for message in client.iter_messages(target_entity, limit=200, offset_date=fetch_end_utc, reverse=False):
+                    # Telethon message.date is naive in UTC; make it aware
                     msg_date_utc = message.date.replace(tzinfo=timezone.utc)
 
-                    if msg_date_utc < fetch_start:
-                        logger.info(f"Message {message.id} is older than fetch_start date {fetch_start.isoformat()}, stopping.")
+                    # Stop when older than start of requested window (UTC equivalent)
+                    if msg_date_utc < fetch_start_utc:
+                        logger.info(f"Message {message.id} is older than fetch_start date {fetch_start_utc.isoformat()}, stopping.")
                         break
                     
                     # if msg_date_utc > fetch_end:
@@ -221,34 +235,85 @@ class TelegramClientImpl(ChatClient):
                         author_name = sender.title
                         author_id = str(sender.id)
                     
+                    reply_to_id = None
+                    if message.reply_to and message.reply_to.reply_to_msg_id:
+                        reply_to_id = str(message.reply_to.reply_to_msg_id)
+
                     newly_fetched_messages.append(Message(
                         id=str(message.id),
                         text=message.text,
                         author=User(id=author_id, name=author_name),
                         timestamp=message.date.isoformat(),
+                        thread_id=reply_to_id,
                     ))
-            
+
             all_messages.extend(newly_fetched_messages)
 
             # Simplified caching logic when not disabled
             if enable_caching:
-                grouped_by_day = {}
+                # Group and cache by LOCAL day to align with UI expectations
+                grouped_by_day_local = {}
                 for msg in newly_fetched_messages:
-                    msg_day = datetime.fromisoformat(msg.timestamp).replace(hour=0, minute=0, second=0, microsecond=0)
-                    if msg_day not in grouped_by_day:
-                        grouped_by_day[msg_day] = []
-                    grouped_by_day[msg_day].append(msg)
+                    msg_dt_aware = datetime.fromisoformat(msg.timestamp)
+                    # If timestamp is naive, assume UTC (Telethon behavior), then convert
+                    if msg_dt_aware.tzinfo is None:
+                        msg_dt_aware = msg_dt_aware.replace(tzinfo=timezone.utc)
+                    msg_dt_local = msg_dt_aware.astimezone(user_tz)
+                    msg_day_local = msg_dt_local.replace(hour=0, minute=0, second=0, microsecond=0)
+                    if msg_day_local not in grouped_by_day_local:
+                        grouped_by_day_local[msg_day_local] = []
+                    grouped_by_day_local[msg_day_local].append(msg)
 
-                for day_to_cache in dates_to_fetch_from_api:
-                    if day_to_cache < today_dt:
-                        messages_for_this_day = grouped_by_day.get(day_to_cache, [])
-                        cache_path = self._get_cache_path(user_identifier, chat_id, day_to_cache)
+                for day_to_cache_local in dates_to_fetch_from_api_local:
+                    if day_to_cache_local < today_local:
+                        messages_for_this_day = grouped_by_day_local.get(day_to_cache_local, [])
+                        cache_path = self._get_cache_path(user_identifier, chat_id, day_to_cache_local)
                         with open(cache_path, 'w') as f:
-                            logger.info(f"Caching {len(messages_for_this_day)} messages for {day_to_cache.date()} at {cache_path}")
+                            logger.info(f"Caching {len(messages_for_this_day)} messages for {day_to_cache_local.date()} at {cache_path}")
                             json.dump([msg.model_dump() for msg in messages_for_this_day], f)
+
+        # Group messages by thread_id (reply_to_msg_id)
+        threads: Dict[str, List[Message]] = {}
+        top_level_messages: List[Message] = []
+
+        for msg in all_messages:
+            if msg.thread_id:
+                # This is a reply. In Telegram, the thread_id is the ID of the message being replied to.
+                # We'll use that as the key to group replies.
+                parent_id = msg.thread_id
+                if parent_id not in threads:
+                    threads[parent_id] = []
+                threads[parent_id].append(msg)
+            else:
+                # This is a top-level message
+                top_level_messages.append(msg)
+
+        # Sort messages within each thread by timestamp
+        for thread_id in threads:
+            threads[thread_id].sort(key=lambda m: m.timestamp)
+
+        # Reconstruct the final list, with threaded messages following their parent
+        final_message_list: List[Message] = []
         
-        logger.info(f"Returning {len(all_messages)} messages from get_messages.")
-        return sorted(all_messages, key=lambda m: m.timestamp)
+        # Sort top-level messages by timestamp to maintain overall order
+        top_level_messages.sort(key=lambda m: m.timestamp)
+
+        for top_msg in top_level_messages:
+            final_message_list.append(top_msg)
+            # If this top-level message has replies, append them
+            if top_msg.id in threads:
+                final_message_list.extend(threads[top_msg.id])
+                # Remove the thread once it's been added
+                del threads[top_msg.id]
+
+        # Add any remaining threads that might have been orphaned (e.g., parent message was outside the date range)
+        # Sort by the timestamp of the first reply in each thread
+        sorted_orphaned_threads = sorted(threads.values(), key=lambda t: t[0].timestamp)
+        for thread in sorted_orphaned_threads:
+            final_message_list.extend(thread)
+
+        logger.info(f"Returning {len(final_message_list)} messages from get_messages after threading.")
+        return final_message_list
 
     async def is_session_valid(self, user_identifier: str) -> bool:
         # This method is correct and unchanged

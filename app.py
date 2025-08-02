@@ -80,6 +80,7 @@ class ChatMessage(BaseModel):
     conversation: List[Dict[str, Any]] # Can now contain complex content
     originalMessages: Optional[List[Dict[str, Any]]] = None # To hold the structured message data
     imageProcessing: Optional[Dict[str, Any]] = None
+    timezone: Optional[str] = None
 
 class DownloadRequest(BaseModel):
     chatId: str
@@ -322,6 +323,7 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
             "start_date_str": req.startDate,
             "end_date_str": req.endDate,
             "enable_caching": req.enableCaching,
+            "timezone_str": req.timezone,
         }
         if backend == 'webex':
             get_messages_kwargs["image_processing_settings"] = req.imageProcessing
@@ -346,6 +348,7 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
         yield f"data: {json.dumps({'type': 'status', 'message': f'Found {message_count} messages. Summarizing...'})}\n\n"
         
         try:
+            # Dont try to fix this error
             stream = llm_client.call_conversational(
                 req.modelName,
                 current_conversation,
@@ -767,6 +770,7 @@ async def _handle_ai_mode(bot_client: Any, user_chat_id: int, message_text: str)
             raise Exception("No default AI model configured for the bot.")
 
         # Call the conversational endpoint without providing original_messages
+        # Dont try to fix this error
         stream = llm_client.call_conversational(model_name, history, None)
 
         ai_response = ""
@@ -829,6 +833,7 @@ async def _handle_summarizer_mode(bot_client: Any, telegram_client: Any, active_
             raise Exception("No default AI model configured for the bot.")
 
         conversation_history = [{"role": "user", "content": query}]
+        # Dont try to fix this error
         stream = llm_client.call_conversational(model_name, conversation_history, formatted_messages_structured)
 
         ai_response = ""
