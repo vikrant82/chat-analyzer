@@ -66,6 +66,7 @@ const initialQuestionGroup = document.getElementById('initialQuestionGroup');
 const toggleQuestionCheckbox = document.getElementById('toggleQuestionCheckbox');
 const downloadChatButton = document.getElementById('downloadChatButton');
 const downloadFormat = document.getElementById('downloadFormat');
+const downloadHelp = document.getElementById('downloadHelp'); // small UX note container if present
 const botManagementSection = document.getElementById('botManagementSection');
 const manageBotsButton = document.getElementById('manageBotsButton');
 const backToChatsButton = document.getElementById('backToChatsButton');
@@ -629,7 +630,14 @@ async function handleDownloadChat() {
             startDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[0]),
             endDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[1]),
             enableCaching: cacheChatsToggle.checked,
-            format: downloadFormat.value
+            format: downloadFormat.value,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            // Ensure downloads include images by default with sane caps
+            imageProcessing: {
+                enabled: true,
+                max_size_bytes: parseInt(maxImageSize.value || "5") * 1024 * 1024,
+                // let backend defaults handle allowed types; send empty to not restrict unless user configured
+            }
         };
 
         const response = await fetch(`/api/download?backend=${appState.activeBackend}`, {
@@ -840,6 +848,41 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     if (downloadChatButton) downloadChatButton.addEventListener('click', handleDownloadChat);
+
+    // Ensure download formats include html and zip if dropdown exists
+    if (downloadFormat) {
+        const ensureOption = (val, label) => {
+            if (![...downloadFormat.options].some(o => o.value === val)) {
+                const opt = document.createElement('option');
+                opt.value = val;
+                opt.textContent = label;
+                downloadFormat.appendChild(opt);
+            }
+        };
+        ensureOption('txt', 'Text (.txt)');
+        ensureOption('pdf', 'PDF (.pdf)');
+        ensureOption('html', 'HTML (.html)');
+        ensureOption('zip', 'Bundle (.zip)');
+
+        // Small, crisp UX note about image exports
+        if (downloadHelp) {
+            const updateHelp = () => {
+                const val = downloadFormat.value;
+                if (val === 'html') {
+                    downloadHelp.textContent = 'HTML export includes images inline (self‑contained file).';
+                } else if (val === 'zip') {
+                    downloadHelp.textContent = 'ZIP export includes transcript, images/, HTML, and a manifest.json.';
+                } else if (val === 'pdf') {
+                    downloadHelp.textContent = 'PDF export is text‑only.';
+                } else {
+                    downloadHelp.textContent = 'Text export is text‑only. Use HTML or ZIP to include images.';
+                }
+            };
+            // initialize and bind changes
+            updateHelp();
+            downloadFormat.addEventListener('change', updateHelp);
+        }
+    }
     
     checkSessionOnLoad();
 

@@ -8,6 +8,8 @@
   - UI exposes Image Processing Options for all providers; backend applies the same configuration to Telegram and Webex. Images are optionally downloaded, size/mime-gated, base64-encoded, and provided to multimodal models as structured `image_url` parts with adjacent caption grounding. See [`javascript.UI script`](static/script.js:0) and [`python.app.chat endpoint`](app.py:0).
 - Local-day bucketing and caching (timezone-agnostic)
   - Local-day semantics are applied based on the user’s browser timezone (IANA tz, e.g., Asia/Kolkata) for day filtering, grouping, and per-day caching keys while preserving each provider’s native pagination. Removed IST-specific wording. See [`python.WebexClientImpl.get_messages()`](clients/webex_client_impl.py:137) and [`python.TelegramClientImpl.get_messages()`](clients/telegram_client_impl.py:144).
+- Downloads with images
+  - Added support for HTML (images embedded) and ZIP (transcript.txt, transcript_with_images.html, images/, manifest.json). TXT/PDF remain text-only.
 - Prompt refinements
   - [`python.UNIFIED_SYSTEM_PROMPT`](ai/prompts.py:0) now explains the single-message transcript packaging up front, including thread markers and image markers, and removes any requirement for output-end packaging notes.
 
@@ -17,8 +19,8 @@
   - Global image processing options as provider-agnostic.
   - The unified single-message transcript packaging described in the system prompt.
 - Added short notes to:
-  - [`markdown.webex_bot_guide.md`](webex_bot_guide.md:1): Mentions threading context preservation and image-processing behavior at a glance.
-  - [`markdown.telegram_bot_guide.md`](telegram_bot_guide.md:1): Mentions threading reconstruction, why it matters for Telegram, and that images can be included subject to limits.
+  - [`markdown.webex_bot_guide.md`](webex_bot_guide.md:1): Mentions threading context preservation and image-processing behavior at a glance, and documents new downloads (TXT/PDF/HTML/ZIP) with images in HTML/ZIP.
+  - [`markdown.telegram_bot_guide.md`](telegram_bot_guide.md:1): Mentions threading reconstruction, image processing, and documents new downloads (TXT/PDF/HTML/ZIP) with images in HTML/ZIP.
 
 ### Next Validation Steps
 - Validate with Telegram chats:

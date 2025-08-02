@@ -57,3 +57,7 @@ The Webex bot is now ready to use.
 *   **Mentioning the Bot:** The bot will only listen for messages where it is directly @-mentioned.
 *   **Default Behavior:** The default summarizer will respond to requests like:
     `@BotName summarize last 2 days`
+*   **Downloads:** From the UI you can download results as:
+    - Text (.txt) and PDF (.pdf): text-only.
+    - HTML (.html): includes images inline.
+    - ZIP (.zip): transcript.txt, transcript_with_images.html, images/, and manifest.json.

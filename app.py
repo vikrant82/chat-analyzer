@@ -120,7 +120,10 @@ class DownloadRequest(BaseModel):
     startDate: str
     endDate: str
     enableCaching: bool
-    format: str  # 'pdf' or 'txt'
+    format: str  # 'pdf' | 'txt' | 'html' | 'zip'
+    # Optional per-request image settings for downloads; default to enabled for richer exports
+    imageProcessing: Optional[Dict[str, Any]] = None
+    timezone: Optional[str] = None
 
 class BotRegistrationRequest(BaseModel):
     name: str
@@ -527,53 +530,214 @@ def _create_pdf(text: str, chat_id: str) -> BytesIO:
 
 @router_api.post("/download")
 async def download_chat(req: DownloadRequest, user_id: str = Depends(get_current_user_id), backend: str = Query(...)):
+    """
+    Enhanced download endpoint supporting:
+    - txt: threaded text with image markers
+    - pdf: text-only (existing behavior)
+    - html: rich HTML with embedded images as data URIs
+    - zip: bundle with transcript.txt, transcript_with_images.html, images/, manifest.json
+    """
     chat_client = get_client(backend)
+
+    # Default image processing for downloads if not specified:
+    # enable images with a safe cap and common image MIME types
+    default_img_settings = {
+        "enabled": True,
+        "max_size_bytes": 5 * 1024 * 1024,  # 5 MB per image
+        "allowed_mime_types": ["image/png", "image/jpeg", "image/gif", "image/webp"]
+    }
+    per_req_img = req.imageProcessing or {}
+    final_img_settings = {**default_img_settings, **per_req_img}
+
     messages_list: List[StandardMessage] = await chat_client.get_messages(
-        user_id, req.chatId, req.startDate, req.endDate, enable_caching=req.enableCaching
+        user_id,
+        req.chatId,
+        req.startDate,
+        req.endDate,
+        enable_caching=req.enableCaching,
+        image_processing_settings=final_img_settings,
+        timezone_str=req.timezone
     )
 
     if not messages_list:
         raise HTTPException(status_code=404, detail="No messages found in the selected date range.")
 
-    # Format messages with thread context
-    formatted_parts = []
+    # Build threaded text transcript and collect images with sequence numbers
+    def ext_from_mime(mime: str) -> str:
+        if mime == "image/jpeg": return "jpg"
+        if mime == "image/png": return "png"
+        if mime == "image/gif": return "gif"
+        if mime == "image/webp": return "webp"
+        return "bin"
+
+    transcript_lines: List[str] = []
     in_thread = False
-    for i, msg in enumerate(messages_list):
+    image_items: List[Dict[str, Any]] = []
+    img_seq = 0
+
+    for msg in messages_list:
         is_reply = msg.thread_id is not None
-        
-        # Check if a thread is starting
+
         if is_reply and not in_thread:
-            formatted_parts.append("\n--- Thread Started ---")
+            transcript_lines.append("\n--- Thread Started ---")
             in_thread = True
-        
-        # Check if a thread is ending
-        if not is_reply and in_thread:
-            formatted_parts.append("--- Thread Ended ---\n")
+        elif not is_reply and in_thread:
+            transcript_lines.append("--- Thread Ended ---\n")
             in_thread = False
 
-        # Format the message itself
         prefix = "    " if is_reply else ""
-        text_content = msg.text or ""
+        header = f"{prefix}[{msg.author.name} at {msg.timestamp}]:"
+        if msg.text:
+            transcript_lines.append(f"{header} {msg.text}")
+        else:
+            transcript_lines.append(f"{header}")
+
         if msg.attachments:
-            text_content += f" (Image Attachment: {', '.join([att.mime_type for att in msg.attachments])})"
-        
-        formatted_parts.append(f"{prefix}[{msg.author.name} at {msg.timestamp}]: {text_content}")
+            for att in msg.attachments:
+                img_seq += 1
+                filename = f"images/img-{img_seq}.{ext_from_mime(att.mime_type)}"
+                # Insert marker in text
+                transcript_lines.append(
+                    f"{prefix}(Image #{img_seq}: {att.mime_type}; author={msg.author.name}; at={msg.timestamp}; file={filename})"
+                )
+                image_items.append({
+                    "seq": img_seq,
+                    "filename": filename,
+                    "mime": att.mime_type,
+                    "author": msg.author.name,
+                    "timestamp": str(msg.timestamp),
+                    "thread": bool(msg.thread_id),
+                    "data_base64": att.data,
+                })
 
-    # If the last message was in a thread, close it
     if in_thread:
-        formatted_parts.append("--- Thread Ended ---")
+        transcript_lines.append("--- Thread Ended ---")
 
-    chat_history = "\n".join(formatted_parts)
-    
-    if req.format == "pdf":
-        pdf_buffer = _create_pdf(chat_history, req.chatId)
-        return StreamingResponse(pdf_buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=\"{req.chatId}_{req.startDate}_to_{req.endDate}.pdf\""})
-    else: # txt
+    # Image Index removed: images are inlined in HTML and listed in ZIP manifest; no separate index needed.
+
+    text_body = "\n".join(transcript_lines)
+
+    # Existing behaviors for txt/pdf
+    if req.format == "txt":
         return StreamingResponse(
-            iter([chat_history.encode('utf-8')]),
+            iter([text_body.encode('utf-8')]),
             media_type="text/plain",
             headers={"Content-Disposition": f"attachment; filename=\"{req.chatId}_{req.startDate}_to_{req.endDate}.txt\""}
         )
+
+    if req.format == "pdf":
+        pdf_buffer = _create_pdf(text_body, req.chatId)  # text-only
+        return StreamingResponse(
+            pdf_buffer,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename=\"{req.chatId}_{req.startDate}_to_{req.endDate}.pdf\""}
+        )
+
+    # Build HTML (embed data URIs so the file is self-contained)
+    def escape_html(s: str) -> str:
+        return (s.replace("&", "&").replace("<", "<").replace(">", ">"))
+
+    def build_html(embed_images_as_data_uri: bool) -> str:
+        html_lines: List[str] = []
+        html_lines.append("<!DOCTYPE html>")
+        html_lines.append("<html><head><meta charset='utf-8'><title>Chat Export</title>")
+        html_lines.append("<style>body{font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.4} .msg{margin:6px 0} .reply{margin-left:1.5em;border-left:2px solid #ddd;padding-left:0.75em} .meta{color:#555} img{max-width:100%;height:auto;margin:4px 0;border:1px solid #eee;border-radius:4px}</style>")
+        html_lines.append("</head><body>")
+        html_lines.append(f"<h2>Chat Export: {escape_html(req.chatId)}</h2>")
+        html_lines.append(f"<p class='meta'>Range: {escape_html(req.startDate)} to {escape_html(req.endDate)}</p>")
+
+        # Re-render messages for HTML to preserve indentation and inline images
+        in_thread_html = False
+        img_lookup = {item["seq"]: item for item in image_items}
+        current_img_seq = 0
+
+        for msg in messages_list:
+            is_reply = msg.thread_id is not None
+            if is_reply and not in_thread_html:
+                html_lines.append("<hr><p><strong>--- Thread Started ---</strong></p>")
+                in_thread_html = True
+            elif not is_reply and in_thread_html:
+                html_lines.append("<p><strong>--- Thread Ended ---</strong></p><hr>")
+                in_thread_html = False
+
+            div_class = "msg reply" if is_reply else "msg"
+            author = escape_html(msg.author.name)
+            ts = escape_html(str(msg.timestamp))
+            text_html = escape_html(msg.text or "")
+            html_lines.append(f"<div class='{div_class}'><div class='meta'><strong>{author}</strong> <em>{ts}</em></div>")
+            if text_html:
+                html_lines.append(f"<div>{text_html}</div>")
+
+            # Render images adjacent to message
+            if msg.attachments:
+                for att in msg.attachments:
+                    current_img_seq += 1
+                    item = img_lookup.get(current_img_seq)
+                    if not item:
+                        continue
+                    if embed_images_as_data_uri:
+                        html_lines.append(f"<div><img src='data:{item['mime']};base64,{item['data_base64']}' alt='Image #{item['seq']}'/></div>")
+                    else:
+                        # For ZIP case, reference relative path
+                        html_lines.append(f"<div><img src='{escape_html(item['filename'])}' alt='Image #{item['seq']}'/></div>")
+            html_lines.append("</div>")  # close msg
+
+        if in_thread_html:
+            html_lines.append("<p><strong>--- Thread Ended ---</strong></p>")
+
+        # Image index removed for HTML: images are already rendered inline with messages.
+
+        html_lines.append("</body></html>")
+        return "\n".join(html_lines)
+
+    if req.format == "html":
+        html_text = build_html(embed_images_as_data_uri=True)
+        return StreamingResponse(
+            iter([html_text.encode('utf-8')]),
+            media_type="text/html",
+            headers={"Content-Disposition": f"attachment; filename=\"{req.chatId}_{req.startDate}_to_{req.endDate}.html\""}
+        )
+
+    if req.format == "zip":
+        import io, zipfile, json as pyjson, base64 as pybase64
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+            # transcript.txt
+            zf.writestr("transcript.txt", text_body.encode('utf-8'))
+
+            # transcript_with_images.html (references files in images/)
+            html_external = build_html(embed_images_as_data_uri=False)
+            zf.writestr("transcript_with_images.html", html_external.encode('utf-8'))
+
+            # images/*
+            for item in image_items:
+                try:
+                    raw = pybase64.b64decode(item["data_base64"])
+                except Exception:
+                    raw = b""
+                zf.writestr(item["filename"], raw)
+
+            # manifest.json
+            manifest = [{
+                "seq": it["seq"],
+                "filename": it["filename"],
+                "mime": it["mime"],
+                "author": it["author"],
+                "timestamp": it["timestamp"],
+                "thread": it["thread"]
+            } for it in image_items]
+            zf.writestr("manifest.json", pyjson.dumps(manifest, indent=2).encode('utf-8'))
+
+        buf.seek(0)
+        return StreamingResponse(
+            buf,
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename=\"{req.chatId}_{req.startDate}_to_{req.endDate}.zip\""}
+        )
+
+    # Unknown format
+    raise HTTPException(status_code=400, detail=f"Unsupported format: {req.format}")
 
 @router_api.post("/clear-session")
 async def clear_session(user_id: str = Depends(get_current_user_id)):

@@ -23,9 +23,12 @@
   - `/clients/bot_factory.py`: Unified bot client factory; Webex/Telegram bot senders. See [`python.clients.bot_factory`](clients/bot_factory.py:1).
 
 **4. Execution & Entry Points**
-   - **How to Run Locally:** `docker-compose up`
-   - **Main Entry Files:** `app.py`
-   - **Build Process:** `docker-compose build`
+  - **How to Run Locally:** `docker-compose up`
+  - **Main Entry Files:** `app.py`
+  - **Build Process:** `docker-compose build`
+  - **Downloads:**
+    - Formats supported: Text (.txt), PDF (.pdf, text-only), HTML (.html with images embedded), Bundle (.zip with transcript.txt, transcript_with_images.html, images/, manifest.json).
+    - Use HTML or ZIP to include images in the export.
 
 **5. Architecture & Core Logic**
   - **Key Modules/Components:**

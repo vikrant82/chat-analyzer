@@ -50,6 +50,13 @@ You can switch the bot into a general-purpose conversational AI.
 *   **Functionality:** In this mode, instead of summarizing, the bot will act as a helpful AI assistant, answering general questions, providing information, or just chatting. It uses the context of the current conversation to inform its responses.
 *   **To deactivate:** Type `/aimode` again to toggle it back to the default Summarizer Mode.
 
+### Downloads
+
+From the UI you can export the analyzed conversation:
+- Text (.txt) and PDF (.pdf): text-only.
+- HTML (.html): includes images inline next to messages.
+- ZIP (.zip): transcript.txt, transcript_with_images.html that references images/, all image files, and a manifest.json with metadata.
+
 ## 4. Troubleshooting & Gotchas
 
 Please read this section carefully to avoid common issues.
