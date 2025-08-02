@@ -4,7 +4,7 @@ import os
 import json
 import logging
 from contextlib import asynccontextmanager
-from typing import List, Dict, Any, AsyncGenerator, Optional
+from typing import List, Dict, Any, AsyncGenerator, Optional, Tuple
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
@@ -244,7 +244,7 @@ class TelegramClientImpl(ChatClient):
                         text=message.text,
                         author=User(id=author_id, name=author_name),
                         timestamp=message.date.isoformat(),
-                        thread_id=reply_to_id,
+                        thread_id=reply_to_id,  # temporary; will be replaced by resolved thread root id
                     ))
 
             all_messages.extend(newly_fetched_messages)
@@ -272,42 +272,81 @@ class TelegramClientImpl(ChatClient):
                             logger.info(f"Caching {len(messages_for_this_day)} messages for {day_to_cache_local.date()} at {cache_path}")
                             json.dump([msg.model_dump() for msg in messages_for_this_day], f)
 
-        # Group messages by thread_id (reply_to_msg_id)
+        # Resolve Telegram "threads" based on reply chains:
+        # - Determine a stable thread root for each message (ultimate ancestor if available within-range).
+        # - Assign thread_id = root_msg_id when root is known; otherwise synthesize a local root.
+        # Build maps for resolution
+        by_id: Dict[str, Message] = {m.id: m for m in all_messages}
+        reply_to: Dict[str, Optional[str]] = {}
+        for m in all_messages:
+            reply_to[m.id] = m.thread_id if m.thread_id else None
+
+        # Helper to walk up the chain to the earliest known ancestor within-range
+        # Returns (root_id, is_local_root)
+        def resolve_root(start_id: str) -> Tuple[str, bool]:
+            visited = set()
+            current = start_id
+            last_known = start_id
+            while True:
+                if current in visited:
+                    # cycle guard; treat current as root
+                    return current, False
+                visited.add(current)
+                parent = reply_to.get(current)
+                if not parent:
+                    return current, False
+                if parent not in by_id:
+                    # parent outside of range; use last known as local root
+                    return last_known, True
+                last_known = parent
+                current = parent
+
+        # Assign resolved thread ids
+        for m in all_messages:
+            if m.thread_id:
+                root_id, is_local = resolve_root(m.id)
+                # Prefer true root id. If local, still use the resolved earliest-known id in-range.
+                m.thread_id = root_id
+            else:
+                # Non-reply remains top-level with no thread_id
+                pass
+
+        # Group messages by thread_id (root id)
         threads: Dict[str, List[Message]] = {}
         top_level_messages: List[Message] = []
 
         for msg in all_messages:
             if msg.thread_id:
-                # This is a reply. In Telegram, the thread_id is the ID of the message being replied to.
-                # We'll use that as the key to group replies.
                 parent_id = msg.thread_id
                 if parent_id not in threads:
                     threads[parent_id] = []
-                threads[parent_id].append(msg)
+                # Exclude the root itself from being double-added as a child if present
+                if msg.id != parent_id:
+                    threads[parent_id].append(msg)
+                else:
+                    # The root stays as a top-level message
+                    top_level_messages.append(msg)
             else:
-                # This is a top-level message
                 top_level_messages.append(msg)
 
         # Sort messages within each thread by timestamp
         for thread_id in threads:
             threads[thread_id].sort(key=lambda m: m.timestamp)
 
-        # Reconstruct the final list, with threaded messages following their parent
+        # Reconstruct the final list, with threaded messages following their parent root
         final_message_list: List[Message] = []
-        
+
         # Sort top-level messages by timestamp to maintain overall order
         top_level_messages.sort(key=lambda m: m.timestamp)
 
         for top_msg in top_level_messages:
             final_message_list.append(top_msg)
-            # If this top-level message has replies, append them
+            # If this top-level message is a root of a thread, append its replies
             if top_msg.id in threads:
                 final_message_list.extend(threads[top_msg.id])
-                # Remove the thread once it's been added
                 del threads[top_msg.id]
 
-        # Add any remaining threads that might have been orphaned (e.g., parent message was outside the date range)
-        # Sort by the timestamp of the first reply in each thread
+        # Orphaned threads: roots outside range; place by first-reply timestamp
         sorted_orphaned_threads = sorted(threads.values(), key=lambda t: t[0].timestamp)
         for thread in sorted_orphaned_threads:
             final_message_list.extend(thread)

@@ -8,6 +8,7 @@ import asyncio
 import base64
 import textwrap
 from datetime import datetime, timedelta, timezone
+import inspect
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request, APIRouter, Depends, Header
@@ -67,6 +68,38 @@ def _load_app_sessions():
     else:
         logger.info("No app session file found. Starting with empty sessions.")
         session_tokens = {}
+
+# --- Streaming Normalizer ---
+async def _normalize_stream(result):
+    """
+    Normalize either an async generator OR a coroutine resolving to an async-iterable
+    into a unified async generator interface.
+    """
+    # If result is already an async generator, iterate it directly
+    if inspect.isasyncgen(result):
+        async for x in result:
+            yield x
+        return
+
+    # Otherwise, await the result; it may resolve to an async-iterable or a string
+    obj = await result
+    # Async iterable (has __aiter__) or async generator again
+    if inspect.isasyncgen(obj) or hasattr(obj, "__aiter__"):
+        async for x in obj:
+            yield x
+        return
+
+    # Fallbacks: string or sync iterable
+    if isinstance(obj, str):
+        yield obj
+        return
+    if hasattr(obj, "__iter__"):
+        for x in obj:
+            yield x
+        return
+
+    # Last resort: stringify unknown type
+    yield str(obj)
 
 # --- Pydantic Models ---
 class ChatMessage(BaseModel):
@@ -348,13 +381,15 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
         yield f"data: {json.dumps({'type': 'status', 'message': f'Found {message_count} messages. Summarizing...'})}\n\n"
         
         try:
-            # Dont try to fix this error
-            stream = llm_client.call_conversational(
-                req.modelName,
-                current_conversation,
-                original_messages_structured
+            # call_conversational returns an async generator; do not await it
+            # Normalize to support both async-generator and coroutine-returning variants
+            stream = _normalize_stream(
+                llm_client.call_conversational(
+                    req.modelName,
+                    current_conversation,
+                    original_messages_structured
+                )
             )
-            # Dont try to fix this error
             async for chunk in stream:
                 yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
         except Exception as e:
@@ -365,84 +400,97 @@ async def chat(req: ChatMessage, user_id: str = Depends(get_current_user_id), ba
 
 def _format_messages_for_llm(messages: List[StandardMessage]) -> List[Dict[str, Any]]:
     """
-    Formats a list of StandardMessage objects into a structured format for the LLM,
-    handling text, attachments, and threading context.
+    Adaptive batching formatter:
+    - Collapses ALL fetched chat history (Webex/Telegram) into a single user turn using
+      the same delimiters as the download flow:
+        --- Thread Started --- / --- Thread Ended ---
+        [Author at ISO8601]: text...
+      and inlines images at the appropriate points as image parts.
+    - Returns a single user message with interleaved text+image parts preferred.
+    - If the target backend rejects mixed content (detected by callers), they can fall back
+      by splitting the returned single message into one big text message plus separate image messages.
     """
-    formatted_parts = []
+    # Build a single text transcript with download-style delimiters, and collect images in order
+    parts: List[Dict[str, Any]] = []  # preferred: mixed parts in one user message
     in_thread = False
-    
+    transcript_lines: List[str] = []
+    image_parts_in_order: List[Dict[str, Any]] = []
+    image_seq = 0  # monotonically increasing image index for linkage
+
     for msg in messages:
         is_reply = msg.thread_id is not None
-        
-        # --- Handle Thread Markers ---
+
+        # Thread markers (download-style)
         if is_reply and not in_thread:
-            formatted_parts.append({"type": "text", "text": "\n--- Thread Started ---"})
+            transcript_lines.append("\n--- Thread Started ---")
             in_thread = True
         elif not is_reply and in_thread:
-            formatted_parts.append({"type": "text", "text": "--- Thread Ended ---\n"})
+            transcript_lines.append("--- Thread Ended ---\n")
             in_thread = False
 
-        # --- Construct the Message Content ---
-        message_content = []
-        
-        # Add a text part for the author and timestamp header
         prefix = "    " if is_reply else ""
         header = f"{prefix}[{msg.author.name} at {msg.timestamp}]:"
-        message_content.append({"type": "text", "text": header})
-
-        # Add the main text of the message, if it exists
         if msg.text:
-            message_content.append({"type": "text", "text": f" {msg.text}"})
+            transcript_lines.append(f"{header} {msg.text}")
+        else:
+            transcript_lines.append(f"{header}")
 
-        # Add any image attachments
+        # Inline images: we do not print raw base64 in text; instead we add an image content part
         if msg.attachments:
             for attachment in msg.attachments:
-                message_content.append({
+                image_seq += 1
+                # Add an explicit marker into the transcript to bind this image with a stable id
+                # Format: (Image #N: <mime>; author=<name>; at=<timestamp>)
+                transcript_lines.append(
+                    f"{prefix}(Image #{image_seq}: {attachment.mime_type}; author={msg.author.name}; at={msg.timestamp})"
+                )
+                # Before the actual image part, add a small caption text part to pair with the image.
+                # This greatly improves multimodal grounding for providers that pair images with the preceding text block.
+                caption_text = f"[Image #{image_seq}] author={msg.author.name}; at={msg.timestamp}; thread={'yes' if msg.thread_id else 'no'}"
+                image_parts_in_order.append({
+                    "type": "text",
+                    "text": caption_text
+                })
+                # Push an image part enriched with metadata that references the same id
+                image_parts_in_order.append({
                     "type": "image",
+                    "id": f"img-{image_seq}",
+                    "meta": {
+                        "author": msg.author.name,
+                        "timestamp": str(msg.timestamp),
+                        "thread": bool(msg.thread_id),
+                        "caption": f"Image #{image_seq} from {msg.author.name} at {msg.timestamp}"
+                    },
                     "source": {
                         "type": "base64",
                         "media_type": attachment.mime_type,
                         "data": attachment.data,
                     },
                 })
-        
-        # The role is always 'user' as this represents the chat history
-        formatted_parts.append({"role": "user", "content": message_content})
 
-    # If the last message was in a thread, close it
+    # Close trailing thread if needed
     if in_thread:
-        formatted_parts.append({"type": "text", "text": "--- Thread Ended ---"})
-        
-    # This is a simplification. We need to combine consecutive text parts for some models.
-    # For now, we will return the list of parts and let the LLM client handle it.
-    # A better approach would be to create a single "user" message with multiple content parts.
-    
-    final_messages = []
-    current_user_parts = []
+        transcript_lines.append("--- Thread Ended ---")
 
-    for part in formatted_parts:
-        if part.get('role') == 'user':
-            if current_user_parts:
-                 # Combine consecutive text parts within a single user message
-                combined_text = "".join(p['text'] for p in current_user_parts if p['type'] == 'text')
-                final_content = [{"type": "text", "text": combined_text}]
-                # Add images
-                final_content.extend([p for p in current_user_parts if p['type'] == 'image'])
-                final_messages.append({"role": "user", "content": final_content})
+    # Primary representation: single user message with mixed text + images
+    # Put the full transcript text first, then append images in order of appearance.
+    # We also include a compact index at the end of the transcript mapping image numbers to authors/timestamps.
+    if image_seq > 0:
+        transcript_lines.append("")
+        transcript_lines.append("Image Index:")
+        for p in image_parts_in_order:
+            if p.get("type") == "image":
+                idx = (p.get("id") or "").replace("img-", "")
+                meta = p.get("meta") or {}
+                author = meta.get("author", "unknown")
+                ts = meta.get("timestamp", "unknown")
+                transcript_lines.append(f"  - Image #{idx}: author={author}; at={ts}")
 
-            current_user_parts = part['content']
-        elif part['type'] == 'text': # Thread markers
-             current_user_parts.append(part)
+    full_text = "Context: Chat History (IST)\n" + "\n".join(transcript_lines)
+    parts.append({"type": "text", "text": full_text})
+    parts.extend(image_parts_in_order)
 
-
-    # Add the last user message
-    if current_user_parts:
-        combined_text = "".join(p['text'] for p in current_user_parts if p['type'] == 'text')
-        final_content = [{"type": "text", "text": combined_text}]
-        final_content.extend([p for p in current_user_parts if p['type'] == 'image'])
-        final_messages.append({"role": "user", "content": final_content})
-
-    return final_messages
+    return [{"role": "user", "content": parts}]
 
 
 def _break_long_words(text: str, max_len: int) -> str:
@@ -734,7 +782,8 @@ async def _process_bot_command(bot_client: Any, webex_client: Any, active_user_i
             raise Exception("No default AI model configured for the bot.")
 
         conversation_history = [{"role": "user", "content": query}]
-        stream = await llm_client.call_conversational(model_name, conversation_history, formatted_messages_structured)
+        # Normalize to support both async-generator and coroutine-returning variants
+        stream = _normalize_stream(llm_client.call_conversational(model_name, conversation_history, formatted_messages_structured))
 
         ai_response = ""
         async for chunk in stream:
@@ -770,11 +819,9 @@ async def _handle_ai_mode(bot_client: Any, user_chat_id: int, message_text: str)
             raise Exception("No default AI model configured for the bot.")
 
         # Call the conversational endpoint without providing original_messages
-        # Dont try to fix this error
-        stream = llm_client.call_conversational(model_name, history, None)
+        stream = _normalize_stream(llm_client.call_conversational(model_name, history, None))
 
         ai_response = ""
-        # Dont try to fix this error
         async for chunk in stream:
             ai_response += chunk
         
@@ -833,11 +880,9 @@ async def _handle_summarizer_mode(bot_client: Any, telegram_client: Any, active_
             raise Exception("No default AI model configured for the bot.")
 
         conversation_history = [{"role": "user", "content": query}]
-        # Dont try to fix this error
-        stream = llm_client.call_conversational(model_name, conversation_history, formatted_messages_structured)
+        stream = _normalize_stream(llm_client.call_conversational(model_name, conversation_history, formatted_messages_structured))
 
         ai_response = ""
-        # Dont try to fix this error
         async for chunk in stream:
             ai_response += chunk
         
