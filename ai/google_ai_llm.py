@@ -2,7 +2,9 @@ import asyncio
 import logging
 from typing import List, Dict, Any, AsyncGenerator, Optional
 
-import google.generativeai as genai
+from google.generativeai.client import configure
+from google.generativeai.models import list_models
+from google.generativeai.generative_models import GenerativeModel
 from google.generativeai.types import generation_types
 
 from .base_llm import LLMClient
@@ -11,6 +13,7 @@ from .prompts import UNIFIED_SYSTEM_PROMPT, GENERAL_AI_SYSTEM_PROMPT
 logger = logging.getLogger(__name__)
 
 DEPRECATED_GOOGLE_MODELS = {"gemini-1.0-pro-vision-latest"}
+SUPPORTED_GOOGLE_MIMETYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 class GoogleAILLM(LLMClient):
     def __init__(self, config: Dict[str, Any]):
@@ -18,7 +21,7 @@ class GoogleAILLM(LLMClient):
         self.api_key = self.config.get('api_key')
         self.available_models = []
         if self.api_key:
-            genai.configure(api_key=self.api_key)
+            configure(api_key=self.api_key)
 
     async def initialize_models(self) -> None:
         if not self.api_key:
@@ -26,7 +29,7 @@ class GoogleAILLM(LLMClient):
             return
         try:
             logger.info("Asynchronously listing Google AI models...")
-            models_iterator = await asyncio.to_thread(genai.list_models)
+            models_iterator = await asyncio.to_thread(list_models)
             supported_models = []
             for m in models_iterator:
                 model_name = m.name.replace("models/", "")
@@ -84,24 +87,30 @@ class GoogleAILLM(LLMClient):
                 elif isinstance(content, list):
                     parts = []
                     for part in content:
-                        if part['type'] == 'text':
-                            parts.append({'text': part['text']})
-                        elif part['type'] == 'image':
-                            source = part['source']
-                            parts.append({
-                                'inline_data': {
-                                    'mime_type': source['media_type'],
-                                    'data': source['data']
-                                }
-                            })
-                    google_history.append({'role': role, 'parts': parts})
-
-            model = genai.GenerativeModel(
-                f"models/{model_name}",
-                system_instruction=system_instruction
-            )
-            
-            # The last message is sent as the new content, the rest is history
+                        if part.get('type') == 'text':
+                            parts.append({'text': part.get('text', '')})
+                        elif part.get('type') == 'image':
+                            source = part.get('source', {})
+                            media_type = source.get('media_type')
+                            data = source.get('data')
+                            if media_type in SUPPORTED_GOOGLE_MIMETYPES and data:
+                                parts.append({
+                                    'inline_data': {
+                                        'mime_type': media_type,
+                                        'data': data
+                                    }
+                                })
+                            else:
+                                logger.warning(f"Skipping image part for Google AI due to unsupported MIME type ('{media_type}') or missing data.")
+                    if parts:
+                        google_history.append({'role': role, 'parts': parts})
+        
+                    model = GenerativeModel(
+                        f"models/{model_name}",
+                        system_instruction=system_instruction
+                        )
+                        
+                        # The last message is sent as the new content, the rest is history
             last_message_parts = google_history.pop()['parts'] if google_history else []
             
             chat = model.start_chat(history=google_history)
