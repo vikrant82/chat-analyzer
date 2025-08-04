@@ -19,6 +19,8 @@ const CACHE_CHATS_KEY = 'chat_analyzer_cache_chats_enabled';
 // Namespaced Local Storage Keys
 const ACTIVE_BACKEND_KEY = 'chat_analyzer_active_backend';
 const getSessionTokenKey = (backend) => `chat_analyzer_${backend}_session_token`;
+const IMAGE_PROCESSING_ENABLED_KEY = 'chat_analyzer_image_processing_enabled';
+const MAX_IMAGE_SIZE_KEY = 'chat_analyzer_max_image_size';
 
 const config = {
     timeouts: {
@@ -816,6 +818,22 @@ document.addEventListener('DOMContentLoaded', () => {
         cacheChatsToggle.checked = saved === null ? true : saved === 'true';
         cacheChatsToggle.addEventListener('change', () => {
             localStorage.setItem(CACHE_CHATS_KEY, cacheChatsToggle.checked ? 'true' : 'false');
+        });
+    }
+
+    if (imageProcessingToggle) {
+        const savedEnabled = localStorage.getItem(IMAGE_PROCESSING_ENABLED_KEY);
+        imageProcessingToggle.checked = savedEnabled === null ? false : savedEnabled === 'true';
+        imageProcessingToggle.addEventListener('change', () => {
+            localStorage.setItem(IMAGE_PROCESSING_ENABLED_KEY, imageProcessingToggle.checked);
+        });
+    }
+
+    if (maxImageSize) {
+        const savedSize = localStorage.getItem(MAX_IMAGE_SIZE_KEY);
+        maxImageSize.value = savedSize === null ? '5' : savedSize;
+        maxImageSize.addEventListener('change', () => {
+            localStorage.setItem(MAX_IMAGE_SIZE_KEY, maxImageSize.value);
         });
     }
 

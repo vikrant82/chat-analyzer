@@ -256,41 +256,44 @@ class TelegramClientImpl(ChatClient):
 
                     # Build attachments if media present; honor image processing settings (enabled + size cap)
                     attachments: List[Attachment] = []
-                    try:
-                        # Skip entirely if disabled
-                        if final_image_settings.get("enabled", False) and getattr(message, "media", None):
-                            import base64
-                            from io import BytesIO
-                            buf = BytesIO()
-                            # Telethon writes bytes to BinaryIO when file is a stream
-                            await client.download_media(message, file=buf)
-                            data_bytes = buf.getvalue() or b""
-                            # Enforce max size if configured (>0)
-                            max_size = int(final_image_settings.get("max_size_bytes") or 0)
-                            if max_size > 0 and len(data_bytes) > max_size:
-                                logger.info(f"Skipping media for message {message.id}: {len(data_bytes)} bytes exceeds cap {max_size} bytes")
-                            elif len(data_bytes) > 0:
-                                # Infer MIME using magic numbers
-                                mime = "application/octet-stream"
-                                sig4 = bytes(data_bytes[:4])
-                                if sig4.startswith(b"\x89PNG"):
-                                    mime = "image/png"
-                                elif sig4.startswith(b"\xFF\xD8\xFF"):
-                                    mime = "image/jpeg"
-                                elif data_bytes[:6] in (b"GIF89a", b"GIF87a"):
-                                    mime = "image/gif"
-                                elif data_bytes[:4] == b"RIFF" and data_bytes[8:12] == b"WEBP":
-                                    mime = "image/webp"
+                    if not final_image_settings.get("enabled", False):
+                        if getattr(message, "media", None):
+                            logger.info("Image processing is disabled by configuration. Skipping file download.")
+                    else:
+                        if getattr(message, "media", None):
+                            try:
+                                import base64
+                                from io import BytesIO
+                                buf = BytesIO()
+                                # Telethon writes bytes to BinaryIO when file is a stream
+                                await client.download_media(message, file=buf)
+                                data_bytes = buf.getvalue() or b""
+                                # Enforce max size if configured (>0)
+                                max_size = int(final_image_settings.get("max_size_bytes") or 0)
+                                if max_size > 0 and len(data_bytes) > max_size:
+                                    logger.info(f"Skipping media for message {message.id}: {len(data_bytes)} bytes exceeds cap {max_size} bytes")
+                                elif len(data_bytes) > 0:
+                                    # Infer MIME using magic numbers
+                                    mime = "application/octet-stream"
+                                    sig4 = bytes(data_bytes[:4])
+                                    if sig4.startswith(b"\x89PNG"):
+                                        mime = "image/png"
+                                    elif sig4.startswith(b"\xFF\xD8\xFF"):
+                                        mime = "image/jpeg"
+                                    elif data_bytes[:6] in (b"GIF89a", b"GIF87a"):
+                                        mime = "image/gif"
+                                    elif data_bytes[:4] == b"RIFF" and data_bytes[8:12] == b"WEBP":
+                                        mime = "image/webp"
 
-                                # Filter by allowed_mime_types if provided
-                                allowed = final_image_settings.get("allowed_mime_types") or []
-                                if allowed and mime not in allowed:
-                                    logger.info(f"Skipping media for message {message.id}: MIME {mime} not allowed")
-                                else:
-                                    encoded = base64.b64encode(data_bytes).decode("utf-8")
-                                    attachments.append(Attachment(mime_type=mime, data=encoded))
-                    except Exception as e:
-                        logger.warning(f"Failed to process media for message {message.id}: {e}", exc_info=True)
+                                    # Filter by allowed_mime_types if provided
+                                    allowed = final_image_settings.get("allowed_mime_types") or []
+                                    if allowed and mime not in allowed:
+                                        logger.info(f"Skipping media for message {message.id}: MIME {mime} not allowed")
+                                    else:
+                                        encoded = base64.b64encode(data_bytes).decode("utf-8")
+                                        attachments.append(Attachment(mime_type=mime, data=encoded))
+                            except Exception as e:
+                                logger.warning(f"Failed to process media for message {message.id}: {e}", exc_info=True)
 
                     newly_fetched_messages.append(Message(
                         id=str(message.id),
