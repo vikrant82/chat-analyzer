@@ -1,3 +1,31 @@
+# Session on 2025-08-05T18:38:27Z (UTC)
+
+### Key Accomplishments
+- Fixed Google AI MIME handling to avoid 400 errors
+  - Added MIME-type allowlist for Google AI inline images and filtered unsupported or missing data before sending.
+  - Implemented change in [`python.GoogleAILLM`](ai/google_ai_llm.py) to only pass supported image types (png/jpeg/gif/webp) and skip `application/octet-stream`.
+  - Corrected imports to explicit modules per Pylance guidance.
+- Honored image-processing settings consistently across providers
+  - Telegram now respects image-processing enable/disable and size/MIME filters like Webex.
+  - Added explicit log when disabled: “Image processing is disabled by configuration. Skipping file download.” in [`python.TelegramClientImpl.get_messages()`](clients/telegram_client_impl.py:259).
+- Persisted image-processing UI options (disabled by default)
+  - Frontend now persists:
+    - Enable/disable image processing checkbox (default: disabled)
+    - Max image size (MB)
+  - Implemented in [`javascript.static/script.js`](static/script.js:20) with keys:
+    - IMAGE_PROCESSING_ENABLED_KEY
+    - MAX_IMAGE_SIZE_KEY
+  - Reads on load and updates localStorage on change.
+
+### Notes/Decisions
+- Default for image processing in the browser UI is disabled to control costs and avoid accidental multimodal requests.
+- Persisted per-user preference in localStorage similar to caching preference.
+
+### Suggested Next Steps
+- Add a backend config fallback for max image size when UI value is missing/invalid.
+- Consider surfacing allowed MIME list in the UI when needed (advanced settings).
+
+---
 # Session on 2025-08-02T21:53:48+05:30 (Local Day)
 
 ### Key Accomplishments
