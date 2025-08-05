@@ -121,7 +121,9 @@ class GoogleAILLM(LLMClient):
 
             async for chunk in response_stream:
                 try:
-                    if chunk.text:
+                    # It appears that the Gemini 1.5 models send back keep-alive messages that are empty
+                    # We should not send these back to the browser otherwise it will crash it
+                    if chunk.text and chunk.text.strip():
                         yield chunk.text
                 except ValueError:
                     logger.warning("A chunk was blocked by Google AI safety settings.")
