@@ -1,18 +1,34 @@
+# Session on 2025-08-07T07:50:20Z (UTC)
+
+### Key Accomplishments
+- **Architectural Refactoring:**
+  - Decomposed the monolithic `app.py` by creating a dedicated `routers` and `services` directory.
+  - Moved all authentication-related endpoints (`/login`, `/logout`, `/verify`, `/callback`, `/session-status`) into a new `routers/auth.py` file.
+  - Encapsulated all session management logic within a new `services/auth_service.py`, removing direct state access from the application layer.
+  - Moved all download-related logic to `routers/downloads.py` and `services/download_service.py`.
+- **Code Cleanup:**
+  - Removed dead code and unused imports from `app.py`.
+  - Standardized the application's architecture to follow a cleaner router/service pattern.
+
+### Next Steps
+- Continue refactoring the remaining endpoints in `app.py` (`/chat`, `/chats`, bot endpoints) to use the new service-based architecture.
+
+---
 # Session on 2025-08-05T18:38:27Z (UTC)
 
 ### Key Accomplishments
 - Fixed Google AI MIME handling to avoid 400 errors
   - Added MIME-type allowlist for Google AI inline images and filtered unsupported or missing data before sending.
-  - Implemented change in [`python.GoogleAILLM`](ai/google_ai_llm.py) to only pass supported image types (png/jpeg/gif/webp) and skip `application/octet-stream`.
+  - Implemented change in `ai/google_ai_llm.py` to only pass supported image types (png/jpeg/gif/webp) and skip `application/octet-stream`.
   - Corrected imports to explicit modules per Pylance guidance.
 - Honored image-processing settings consistently across providers
   - Telegram now respects image-processing enable/disable and size/MIME filters like Webex.
-  - Added explicit log when disabled: “Image processing is disabled by configuration. Skipping file download.” in [`python.TelegramClientImpl.get_messages()`](clients/telegram_client_impl.py:259).
+  - Added explicit log when disabled: “Image processing is disabled by configuration. Skipping file download.” in `clients/telegram_client_impl.py`.
 - Persisted image-processing UI options (disabled by default)
   - Frontend now persists:
     - Enable/disable image processing checkbox (default: disabled)
     - Max image size (MB)
-  - Implemented in [`javascript.static/script.js`](static/script.js:20) with keys:
+  - Implemented in `static/script.js` with keys:
     - IMAGE_PROCESSING_ENABLED_KEY
     - MAX_IMAGE_SIZE_KEY
   - Reads on load and updates localStorage on change.
@@ -30,25 +46,25 @@
 
 ### Key Accomplishments
 - Telegram threading preservation and reconstruction
-  - Reconfirmed and documented the reply-chain reconstruction strategy in [`python.TelegramClientImpl.get_messages()`](clients/telegram_client_impl.py:144) and transcript packaging in [`python.app._format_messages_for_llm()`](app.py:0). Threads are reconstructed by resolving reply-chain roots, assigning a stable `thread_id` to the root, and grouping replies under that root. Orphaned chains are grouped by first-reply timestamp for deterministic ordering.
+  - Reconfirmed and documented the reply-chain reconstruction strategy in `clients/telegram_client_impl.py` and transcript packaging in `app.py`. Threads are reconstructed by resolving reply-chain roots, assigning a stable `thread_id` to the root, and grouping replies under that root. Orphaned chains are grouped by first-reply timestamp for deterministic ordering.
   - Transcript packaging emits explicit thread boundaries (“--- Thread Started/Ended ---”) and reply context hints for the LLM.
 - Global image processing options (provider-agnostic)
-  - UI exposes Image Processing Options for all providers; backend applies the same configuration to Telegram and Webex. Images are optionally downloaded, size/mime-gated, base64-encoded, and provided to multimodal models as structured `image_url` parts with adjacent caption grounding. See [`javascript.UI script`](static/script.js:0) and [`python.app.chat endpoint`](app.py:0).
+  - UI exposes Image Processing Options for all providers; backend applies the same configuration to Telegram and Webex. Images are optionally downloaded, size/mime-gated, base64-encoded, and provided to multimodal models as structured `image_url` parts with adjacent caption grounding. See `static/script.js` and `app.py`.
 - Local-day bucketing and caching (timezone-agnostic)
-  - Local-day semantics are applied based on the user’s browser timezone (IANA tz, e.g., Asia/Kolkata) for day filtering, grouping, and per-day caching keys while preserving each provider’s native pagination. Removed IST-specific wording. See [`python.WebexClientImpl.get_messages()`](clients/webex_client_impl.py:137) and [`python.TelegramClientImpl.get_messages()`](clients/telegram_client_impl.py:144).
+  - Local-day semantics are applied based on the user’s browser timezone (IANA tz, e.g., Asia/Kolkata) for day filtering, grouping, and per-day caching keys while preserving each provider’s native pagination. Removed IST-specific wording. See `clients/webex_client_impl.py` and `clients/telegram_client_impl.py`.
 - Downloads with images
   - Added support for HTML (images embedded) and ZIP (transcript.txt, transcript_with_images.html, images/, manifest.json). TXT/PDF remain text-only.
 - Prompt refinements
-  - [`python.UNIFIED_SYSTEM_PROMPT`](ai/prompts.py:0) now explains the single-message transcript packaging up front, including thread markers and image markers, and removes any requirement for output-end packaging notes.
+  - `ai/prompts.py` now explains the single-message transcript packaging up front, including thread markers and image markers, and removes any requirement for output-end packaging notes.
 
 ### Documentation Updates
-- Updated [`markdown.overview.md`](overview.md:1) to explicitly call out:
+- Updated `overview.md` to explicitly call out:
   - Telegram threading reconstruction and its benefit to reduce interleaving confusion.
   - Global image processing options as provider-agnostic.
   - The unified single-message transcript packaging described in the system prompt.
 - Added short notes to:
-  - [`markdown.webex_bot_guide.md`](webex_bot_guide.md:1): Mentions threading context preservation and image-processing behavior at a glance, and documents new downloads (TXT/PDF/HTML/ZIP) with images in HTML/ZIP.
-  - [`markdown.telegram_bot_guide.md`](telegram_bot_guide.md:1): Mentions threading reconstruction, image processing, and documents new downloads (TXT/PDF/HTML/ZIP) with images in HTML/ZIP.
+  - `webex_bot_guide.md`: Mentions threading context preservation and image-processing behavior at a glance, and documents new downloads (TXT/PDF/HTML/ZIP) with images in HTML/ZIP.
+  - `telegram_bot_guide.md`: Mentions threading reconstruction, image processing, and documents new downloads (TXT/PDF/HTML/ZIP) with images in HTML/ZIP.
 
 ### Next Validation Steps
 - Validate with Telegram chats:
@@ -65,10 +81,10 @@
 
 ### Key Accomplishments:
 - Webex date handling aligned to user-local timezone semantics
-  - Implemented local-day filtering, grouping, and caching in [`python.WebexClientImpl.get_messages()`](clients/webex_client_impl.py:137), using start/end as user-local inclusive day range, converting messages to the user’s timezone before bucketing, and determining "today" in the user’s local timezone (IANA tz from browser).
+  - Implemented local-day filtering, grouping, and caching in `clients/webex_client_impl.py`, using start/end as user-local inclusive day range, converting messages to the user’s timezone before bucketing, and determining "today" in the user’s local timezone (IANA tz from browser).
   - Preserved Webex API pagination while switching comparisons to local-day windows.
 - Telegram date handling made consistent with Webex and user-local timezone
-  - Updated [`python.TelegramClientImpl.get_messages()`](clients/telegram_client_impl.py:144) to use user-local day windows, group/cache by local days, treat Telethon message timestamps as UTC if naive, and compute cacheability by the user’s local “today”.
+  - Updated `clients/telegram_client_impl.py` to use user-local day windows, group/cache by local days, treat Telethon message timestamps as UTC if naive, and compute cacheability by the user’s local “today”.
 - Verified behavior against user-provided screenshots and UX inputs: date selections in local-day now include messages exactly as shown for those days.
 - No changes to message sorting format; ISO 8601 strings remain stable, with option to harden later by sorting on parsed datetimes.
 
@@ -86,14 +102,14 @@
 *   **Feature: Configurable Image Processing (Webex)**
     *   Implemented a new configuration section in `example-config.json` to allow global control over image processing, including enabling/disabling the feature, setting max file sizes, and defining allowed MIME types.
     *   Added a collapsible "Image Processing Options" section to the UI, which appears only for the Webex backend, allowing users to override global settings on a per-request basis.
-    *   Updated the backend logic in [`app.py`](app.py) and [`clients/webex_client_impl.py`](clients/webex_client_impl.py) to enforce these new rules.
+    *   Updated the backend logic in `app.py` and `clients/webex_client_impl.py` to enforce these new rules.
 *   **Bug Fixes & Hardening:**
-    *   Resolved a critical timezone bug in [`static/script.js`](static/script.js) that caused incorrect date ranges to be sent to the backend.
+    *   Resolved a critical timezone bug in `static/script.js` that caused incorrect date ranges to be sent to the backend.
     *   Fixed a caching flaw where the file-based cache was being used even when the user disabled caching in the UI.
     *   Addressed multiple `FPDFException` errors by implementing robust word-wrapping for long, unbreakable strings in the PDF generation logic.
     *   Reverted the PDF image embedding feature due to persistent rendering issues, ensuring the PDF download functionality remains stable and text-only.
 *   **Documentation:**
-    *   Updated [`readme.md`](readme.md) to reflect the new configurable image processing feature.
+    *   Updated `readme.md` to reflect the new configurable image processing feature.
 
 ---
 
@@ -102,10 +118,10 @@
 ### Key Accomplishments:
 
 *   **Feature Finalization & Documentation:**
-    *   **Webex Image Support:** Finalized and documented the application's ability to process and analyze images from Webex chats. The support includes downloading attachments, encoding them, and passing them to the multimodal AI model, which is now reflected in [`overview.md`](overview.md).
-    *   **Caching Architecture:** Analyzed and documented the complete two-layer caching system in [`overview.md`](overview.md) and updated the [`project-plan.md`](project-plan.md) with future enhancements.
+    *   **Webex Image Support:** Finalized and documented the application's ability to process and analyze images from Webex chats. The support includes downloading attachments, encoding them, and passing them to the multimodal AI model, which is now reflected in `overview.md`.
+    *   **Caching Architecture:** Analyzed and documented the complete two-layer caching system in `overview.md` and updated the `project-plan.md` with future enhancements.
 *   **Bug Fixes & Hardening:**
-    *   Corrected a critical flaw in the in-memory cache ([`app.py`](app.py)) to prevent caching of data from the current day, ensuring data freshness.
+    *   Corrected a critical flaw in the in-memory cache (`app.py`) to prevent caching of data from the current day, ensuring data freshness.
 
 ---
 
@@ -113,10 +129,10 @@
 
 ### Key Accomplishments:
 
-*   **Prompt Engineering**: Refined the system prompt in [`ai/prompts.py`](ai/prompts.py) to clarify how threaded conversations are handled, specifying that threads are replies to the immediately preceding message.
+*   **Prompt Engineering**: Refined the system prompt in `ai/prompts.py` to clarify how threaded conversations are handled, specifying that threads are replies to the immediately preceding message.
 *   **Bug Fixes**:
-    *   Corrected a bug in [`app.py`](app.py) where the conversation history was using the non-standard `model` role for the AI's responses. This has been changed to the standard `assistant` role for API compatibility.
-    *   Fixed a logic error in [`ai/openai_compatible_llm.py`](ai/openai_compatible_llm.py) where the conversation history was being incorrectly merged into the system prompt instead of being passed as a proper message list. This ensures the model receives the correct conversational context.
+    *   Corrected a bug in `app.py` where the conversation history was using the non-standard `model` role for the AI's responses. This has been changed to the standard `assistant` role for API compatibility.
+    *   Fixed a logic error in `ai/openai_compatible_llm.py` where the conversation history was being incorrectly merged into the system prompt instead of being passed as a proper message list. This ensures the model receives the correct conversational context.
 
 ---
 # Last Session Summary (2025-07-27)

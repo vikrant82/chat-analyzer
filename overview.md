@@ -16,11 +16,12 @@
    - **Database:** None.
 
 **3. Directory Structure Map**
-  - `/ai`: System prompts, LLM client factories, and OpenAI-compatible streaming implementation. See [`python.ai.openai_compatible_llm`](ai/openai_compatible_llm.py:1).
-  - `/clients`: Platform clients (Telegram, Webex). See [`python.clients.telegram_client_impl`](clients/telegram_client_impl.py:1) and [`python.clients.webex_client_impl`](clients/webex_client_impl.py:1).
-  - `/static`: Frontend HTML/CSS/JS. The UI sends the browser timezone to the backend and exposes global Image Processing Options. See [`javascript.static/script.js`](static/script.js:1).
-  - `/bot_manager.py`: Bot registration/lookup. See [`python.bot_manager`](bot_manager.py:1).
-  - `/clients/bot_factory.py`: Unified bot client factory; Webex/Telegram bot senders. See [`python.clients.bot_factory`](clients/bot_factory.py:1).
+  - `/ai`: System prompts, LLM client factories, and OpenAI-compatible streaming implementation.
+  - `/clients`: Platform clients (Telegram, Webex).
+  - `/routers`: API endpoint definitions for authentication, downloads, etc.
+  - `/services`: Business logic for authentication, downloads, etc.
+  - `/static`: Frontend HTML/CSS/JS.
+  - `/bot_manager.py`: Bot registration/lookup.
 
 **4. Execution & Entry Points**
   - **How to Run Locally:** `docker-compose up`
@@ -33,14 +34,20 @@
 **5. Architecture & Core Logic**
   - **Key Modules/Components:**
     - **File:** `app.py`
-      - Orchestration, API routers, session handling, streaming normalization via [`python.app._normalize_stream()`](app.py:73).
-      - **Transcript Packaging:** [`python.app._format_messages_for_llm()`](app.py:401) builds a single packaged “Context: Chat History (Local Day)” user message with thread markers, author/timestamp headers, explicit image markers, and adjacent caption grounding. Images are represented as structured parts with metadata and are paired with captions to improve grounding.
-      - **/api/chat:** Applies image processing settings from the UI, forwards user’s IANA timezone to clients, performs in-memory caching for historical ranges, and streams LLM output.
+      - Main application entry point. Initializes the FastAPI app and includes the API routers.
+    - **File:** `routers/auth.py`
+      - Handles all authentication-related API endpoints.
+    - **File:** `routers/downloads.py`
+      - Handles the API endpoint for downloading chat transcripts.
+    - **File:** `services/auth_service.py`
+      - Manages session tokens and user authentication state.
+    - **File:** `services/download_service.py`
+      - Contains the business logic for creating download files in various formats (PDF, TXT, HTML, ZIP).
     - **File:** `clients/factory.py` — Resolves platform clients based on backend param.
     - **File:** `clients/telegram_client_impl.py`
-      - Reads history with Telethon, reconstructs threads by reply-chain root resolution, assigns stable `thread_id`, orders orphan chains deterministically, honors image processing limits, groups/caches by local-day. See [`python.clients.telegram_client_impl.get_messages()`](clients/telegram_client_impl.py:144).
+      - Reads history with Telethon, reconstructs threads by reply-chain root resolution, assigns stable `thread_id`, orders orphan chains deterministically, honors image processing limits, groups/caches by local-day.
     - **File:** `clients/webex_client_impl.py`
-      - Uses native thread IDs, performs local-day grouping/caching with ZoneInfo(timezone), optional image download with HEAD pre-checks, and pagination until window satisfied. See [`python.clients.webex_client_impl.get_messages()`](clients/webex_client_impl.py:137).
+      - Uses native thread IDs, performs local-day grouping/caching with ZoneInfo(timezone), optional image download with HEAD pre-checks, and pagination until window satisfied.
     - **File:** `ai/prompts.py`
       - Defines `UNIFIED_SYSTEM_PROMPT` describing transcript packaging at the start; removes any instruction to add packaging notes in outputs.
     - **File:** `ai/openai_compatible_llm.py`
@@ -83,4 +90,3 @@
 
 **Developer Notes:**
 - Keep streaming implementation aligned with frontend expectations; avoid unverified streaming refactors.
-
