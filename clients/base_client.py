@@ -65,7 +65,7 @@ class ChatClient(ABC):
         pass
 
     @abstractmethod
-    async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str, enable_caching: bool = True, image_processing_settings: Optional[Dict[str, Any]] = None) -> List[Message]:
+    async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str, enable_caching: bool = True, image_processing_settings: Optional[Dict[str, Any]] = None, timezone_str: Optional[str] = None) -> List[Message]:
         """
         Fetches messages from a specific chat within a date range.
         """
