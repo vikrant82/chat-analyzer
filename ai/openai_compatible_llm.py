@@ -4,7 +4,7 @@ from typing import List, Dict, Any, AsyncGenerator, Optional
 
 import httpx
 
-from .base_llm import LLMClient
+from .base_llm import LLMClient, LLMError
 from .prompts import UNIFIED_SYSTEM_PROMPT, GENERAL_AI_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -118,6 +118,11 @@ class OpenAICompatibleLLM(LLMClient):
                                 break
                             try:
                                 chunk_data = json.loads(line_content)
+                                if 'error' in chunk_data:
+                                    error_message = chunk_data['error'].get('message', 'Unknown error from LLM.')
+                                    logger.error(f"LLM error in stream: {error_message}")
+                                    raise LLMError(error_message)
+                                
                                 if chunk_data['choices'][0]['delta'].get('content'):
                                     yield chunk_data['choices'][0]['delta']['content']
                             except json.JSONDecodeError:

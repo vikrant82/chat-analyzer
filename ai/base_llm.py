@@ -1,6 +1,10 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, AsyncGenerator, Optional
 
+class LLMError(Exception):
+    """Custom exception for LLM-related errors."""
+    pass
+
 class LLMClient(ABC):
     """
     An abstract interface for Large Language Model (LLM) clients.

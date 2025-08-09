@@ -562,6 +562,10 @@ async function callChatApi(message = null) {
                     } else if (data.type === 'content') {
                         fullResponseText += data.chunk;
                         aiMessageElem.innerHTML = marked.parse(fullResponseText, { breaks: true, gfm: true });
+                    } else if (data.type === 'error') {
+                        fullResponseText = `<p style="color: red;"><strong>Error:</strong> ${data.message}</p>`;
+                        aiMessageElem.innerHTML = fullResponseText;
+                        break; 
                     }
                     chatWindow.scrollTop = chatWindow.scrollHeight;
                 }

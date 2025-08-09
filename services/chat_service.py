@@ -10,6 +10,7 @@ from clients.base_client import Message as StandardMessage
 from clients.factory import get_client
 from services import auth_service
 from llm.llm_client import LLMManager
+from ai.base_llm import LLMError
 
 logger = logging.getLogger(__name__)
 message_cache: Dict[str, str] = {}
@@ -115,16 +116,17 @@ async def process_chat_request(req: ChatMessage, user_id: str, backend: str, llm
         yield f"data: {json.dumps({'type': 'status', 'message': f'Found {message_count} messages. Summarizing...'})}\n\n"
         
         try:
-            stream = _normalize_stream(
-                await llm_manager.call_conversational(
-                    req.provider,
-                    req.modelName,
-                    current_conversation,
-                    original_messages_structured
-                )
+            stream = await llm_manager.call_conversational(
+                req.provider,
+                req.modelName,
+                current_conversation,
+                original_messages_structured
             )
-            async for chunk in stream:
+            async for chunk in _normalize_stream(stream):
                 yield f"data: {json.dumps({'type': 'content', 'chunk': chunk})}\n\n"
+        except LLMError as e:
+            logger.error(f"LLM-specific error during streaming: {e}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
         except Exception as e:
             logger.error(f"Unhandled error in conversational streaming generator: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'message': f'An unexpected error occurred: {e}'})}\n\n"
