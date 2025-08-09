@@ -70,7 +70,7 @@ async def delete_bot(backend: str, bot_name: str, user_id: str = Depends(auth_se
 
 # --- Bot Webhook Endpoints ---
 
-@router.post("/webex/webhook")
+@router.post("/bots/webex/webhook")
 async def webex_webhook(req: Request):
     try:
         webhook_data = await req.json()
@@ -81,7 +81,7 @@ async def webex_webhook(req: Request):
         logger.error(f"Error processing Webex webhook: {e}", exc_info=True)
         return {"status": "error", "detail": str(e)}
 
-@router.post("/telegram/webhook/{bot_token}")
+@router.post("/bots/telegram/webhook/{bot_token}")
 async def telegram_webhook(bot_token: str, req: Request):
     try:
         webhook_data = await req.json()

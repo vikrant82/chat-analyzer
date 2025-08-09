@@ -104,15 +104,15 @@ class GoogleAILLM(LLMClient):
                                 logger.warning(f"Skipping image part for Google AI due to unsupported MIME type ('{media_type}') or missing data.")
                     if parts:
                         google_history.append({'role': role, 'parts': parts})
-        
-                    model = GenerativeModel(
-                        f"models/{model_name}",
-                        system_instruction=system_instruction
-                        )
-                        
-                        # The last message is sent as the new content, the rest is history
-            last_message_parts = google_history.pop()['parts'] if google_history else []
+
+            model = GenerativeModel(
+                f"models/{model_name}",
+                system_instruction=system_instruction
+            )
             
+            # The last message is sent as the new content, the rest is history
+            last_message_parts = google_history.pop()['parts'] if google_history else []
+
             chat = model.start_chat(history=google_history)
             response_stream = await chat.send_message_async(
                 content=last_message_parts,

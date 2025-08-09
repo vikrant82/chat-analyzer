@@ -71,7 +71,7 @@ async def root():
 app.include_router(auth.router, prefix="/api", tags=["Authentication"])
 app.include_router(downloads.router, prefix="/api", tags=["Downloads"])
 app.include_router(chat.router, prefix="/api", tags=["Chat"])
-app.include_router(bots.router, prefix="/api")
+app.include_router(bots.router, prefix="/api", tags=["Bot Management & Webhooks"])
 
 
 if __name__ == "__main__":
