@@ -54,9 +54,10 @@ The application features a robust caching system to ensure fast, repeated analys
 ├── clients/                # Contains the logic for each chat service
 ├── sessions/               # Auto-generated: Stores login session files
 ├── static/                 # Frontend CSS, JavaScript and single-page frontend
+├── routers/                # API endpoint definitions
+├── services/               # Business logic and state management
 ├── app.py                  # Main FastAPI backend application
 ├── bot_manager.py          # Handles bot configuration
-├── WebexClient.py          # Low-level client for Webex API
 ├── config.json             # Main configuration file
 ├── requirements.txt        # Python dependencies
 ├── Dockerfile              # Instructions to build the Docker image

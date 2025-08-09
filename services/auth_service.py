@@ -55,6 +55,10 @@ def delete_session_by_token(token: str):
         del session_tokens[token]
         save_app_sessions()
 
+def get_all_active_sessions() -> Dict[str, Dict[str, str]]:
+    """Returns the entire dictionary of active sessions."""
+    return session_tokens
+
 async def get_current_user_id(authorization: str = Header(...)) -> str:
     """
     Dependency that handles unified token-based authentication.

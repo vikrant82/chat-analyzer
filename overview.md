@@ -68,8 +68,8 @@
   - `/api/chat` summarizes using single-message transcript + conversation; streams output
   - `/api/download` exports threaded transcript (PDF/TXT)
   - `/api/clear-session`, `/api/logout` clear caches/sessions
-  - `/api/webex/bots` and `/api/telegram/bots` manage bot registration
-  - `/api/bot/webex/webhook` and `/api/bot/telegram/webhook/{token}` receive bot events
+  - `/api/{backend}/bots` manage bot registration, listing, and deletion.
+  - `/api/bots/webex/webhook` and `/api/bots/telegram/webhook/{token}` receive bot events
 
 **7. Configuration & Environment**
   - `config.json`:

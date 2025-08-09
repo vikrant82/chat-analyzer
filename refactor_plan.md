@@ -17,18 +17,6 @@ During our session, we made the following key architectural decisions:
 - [x] **Phase 1: Full Authentication Refactor**
 - [x] **Phase 2: Download Logic Refactor**
 
-### Pending
-- [ ] **Phase 3: Chat Logic Refactor**
-  - [ ] Create `routers/chat.py` and `services/chat_service.py`.
-  - [ ] Move the `/api/chat` endpoint and its helper functions (`_format_messages_for_llm`, `_normalize_stream`) to the new modules.
-  - [ ] Refactor the chat router to be a thin layer that calls the chat service.
-- [ ] **Phase 4: Bot Management & Webhook Refactor**
-  - [ ] Create `routers/bot_management.py` and `routers/bot_webhooks.py`.
-  - [ ] Create a `services/bot_service.py`.
-  - [ ] Move the bot management and webhook endpoints to their respective routers.
-  - [ ] Move the bot-related helper functions to the bot service.
-  - [ ] Refactor the bot routers to use the bot service.
-- [ ] **Phase 5: Final Cleanup & Validation**
-  - [ ] Update `app.py` to include all new routers.
-  - [ ] Remove any remaining business logic from `app.py`.
-  - [ ] Perform a full validation of the entire application.
+- [x] **Phase 3: Chat Logic Refactor**
+- [x] **Phase 4: Bot Management & Webhook Refactor**
+- [x] **Phase 5: Final Cleanup & Validation**
