@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from bot_manager import BotManager
 from services import auth_service, bot_service
 from routers import downloads, auth, chat, bots
-from llm.llm_client import initialize_llm_clients
+from llm.llm_client import LLMManager
 
 # --- Basic Setup & Logging ---
 logging.basicConfig(
@@ -26,24 +26,27 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- Global Configuration & State ---
-config = {}
 bot_manager = BotManager()
+llm_manager = LLMManager()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Application startup: Initializing...")
+    
+    # Initialize services and managers
     auth_service.load_app_sessions()
-    global config
-    try:
-        with open('config.json', 'r') as f:
-            config.update(json.load(f))
-    except FileNotFoundError:
-        logger.error("config.json not found!")
-
-    await initialize_llm_clients()
-    bot_service.initialize_bot_service(config)
+    
+    # Initialize LLM clients
+    await llm_manager.initialize_clients()
+    app.state.llm_manager = llm_manager
+    
+    # Pass the loaded config and manager to other services
+    bot_service.initialize_bot_service(llm_manager.config, llm_manager)
+    
+    logger.info("Initialization complete.")
     
     yield
+    
     logger.info("Application shutdown.")
 
 # --- FastAPI App Initialization ---

@@ -9,7 +9,7 @@ import inspect
 from clients.base_client import Message as StandardMessage
 from clients.factory import get_client
 from services import auth_service
-from llm.llm_client import llm_clients
+from llm.llm_client import LLMManager
 
 logger = logging.getLogger(__name__)
 message_cache: Dict[str, str] = {}
@@ -27,6 +27,7 @@ class ChatMessage(BaseModel):
     originalMessages: Optional[List[Dict[str, Any]]] = None
     imageProcessing: Optional[Dict[str, Any]] = None
     timezone: Optional[str] = None
+
 
 async def _normalize_stream(result):
     """
@@ -54,15 +55,7 @@ async def _normalize_stream(result):
 
     yield str(obj)
 
-async def process_chat_request(req: ChatMessage, user_id: str, backend: str):
-    llm_client = llm_clients.get(req.provider)
-
-    if not llm_client:
-        raise HTTPException(status_code=400, detail=f"Invalid provider '{req.provider}' specified.")
-
-    if req.modelName not in llm_client.get_available_models():
-        raise HTTPException(status_code=400, detail=f"Model '{req.modelName}' is not available for provider '{req.provider}'.")
-
+async def process_chat_request(req: ChatMessage, user_id: str, backend: str, llm_manager: LLMManager):
     token = auth_service.get_token_for_user(user_id)
     if not token:
         raise HTTPException(status_code=401, detail="Could not find session token for user.")
@@ -123,7 +116,8 @@ async def process_chat_request(req: ChatMessage, user_id: str, backend: str):
         
         try:
             stream = _normalize_stream(
-                llm_client.call_conversational(
+                await llm_manager.call_conversational(
+                    req.provider,
                     req.modelName,
                     current_conversation,
                     original_messages_structured

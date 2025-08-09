@@ -9,7 +9,7 @@ from clients.base_client import Message as StandardMessage
 from clients.bot_factory import get_bot_client
 from clients.factory import get_client
 from clients.telegram_bot_client_impl import TelegramBotClient
-from llm.llm_client import llm_clients
+from llm.llm_client import LLMManager
 from services import auth_service
 from services.chat_service import _format_messages_for_llm
 
@@ -22,7 +22,8 @@ chat_modes: Dict[int, str] = {}
 
 # This is a temporary solution. In a real app, this should be handled
 # by a proper dependency injection system or by passing config explicitly.
-config = {} 
+config = {}
+llm_manager: Optional[LLMManager] = None
 
 # --- Streaming Normalizer ---
 async def _normalize_stream(result):
@@ -121,14 +122,22 @@ async def _process_webex_bot_command(bot_client: Any, webex_client: Any, active_
 
         formatted_messages_structured = _format_messages_for_llm(messages_list)
 
-        llm_provider = next(iter(llm_clients))
-        llm_client = llm_clients[llm_provider]
+        if not llm_manager:
+            raise Exception("LLMManager not initialized.")
+        
+        # For bot commands, we can simplify by using the first available provider and its default model.
+        llm_provider = next(iter(llm_manager.clients))
+        llm_client = llm_manager.get_client(llm_provider)
         model_name = llm_client.get_default_model()
         if not model_name:
             raise Exception("No default AI model configured for the bot.")
 
         conversation_history = [{"role": "user", "content": query}]
-        stream = _normalize_stream(llm_client.call_conversational(model_name, conversation_history, formatted_messages_structured))
+        stream = _normalize_stream(
+            await llm_manager.call_conversational(
+                llm_provider, model_name, conversation_history, formatted_messages_structured
+            )
+        )
 
         ai_response = ""
         async for chunk in stream:
@@ -152,13 +161,18 @@ async def _handle_ai_mode(bot_client: Any, user_chat_id: int, message_text: str)
         if len(history) > 20:
             history = history[-20:]
 
-        llm_provider = next(iter(llm_clients))
-        llm_client = llm_clients[llm_provider]
+        if not llm_manager:
+            raise Exception("LLMManager not initialized.")
+
+        llm_provider = next(iter(llm_manager.clients))
+        llm_client = llm_manager.get_client(llm_provider)
         model_name = llm_client.get_default_model()
         if not model_name:
             raise Exception("No default AI model configured for the bot.")
 
-        stream = _normalize_stream(llm_client.call_conversational(model_name, history, None))
+        stream = _normalize_stream(
+            await llm_manager.call_conversational(llm_provider, model_name, history, None)
+        )
 
         ai_response = ""
         async for chunk in stream:
@@ -202,14 +216,21 @@ async def _handle_summarizer_mode(bot_client: Any, telegram_client: Any, active_
 
         formatted_messages_structured = _format_messages_for_llm(messages_list)
 
-        llm_provider = next(iter(llm_clients))
-        llm_client = llm_clients[llm_provider]
+        if not llm_manager:
+            raise Exception("LLMManager not initialized.")
+            
+        llm_provider = next(iter(llm_manager.clients))
+        llm_client = llm_manager.get_client(llm_provider)
         model_name = llm_client.get_default_model()
         if not model_name:
             raise Exception("No default AI model configured for the bot.")
 
         conversation_history = [{"role": "user", "content": query}]
-        stream = _normalize_stream(llm_client.call_conversational(model_name, conversation_history, formatted_messages_structured))
+        stream = _normalize_stream(
+            await llm_manager.call_conversational(
+                llm_provider, model_name, conversation_history, formatted_messages_structured
+            )
+        )
 
         ai_response = ""
         async for chunk in stream:
@@ -338,10 +359,11 @@ async def handle_telegram_webhook(bot_manager, bot_token: str, webhook_data: Dic
     await _process_telegram_bot_command(specific_bot_client, telegram_client, active_user_id, chat_id, bot_id, message_text)
     return {"status": "processed"}
 
-def initialize_bot_service(app_config: Dict[str, Any]):
+def initialize_bot_service(app_config: Dict[str, Any], manager: LLMManager):
     """
-    Initializes the bot service with the global application config.
+    Initializes the bot service with the global application config and the LLMManager.
     """
-    global config
+    global config, llm_manager
     config.update(app_config)
-    logger.info("Bot service initialized with application config.")
+    llm_manager = manager
+    logger.info("Bot service initialized with application config and LLMManager.")

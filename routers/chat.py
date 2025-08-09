@@ -1,22 +1,25 @@
 import logging
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from services.chat_service import ChatMessage, process_chat_request
 from services import auth_service, chat_service
-from llm.llm_client import llm_clients
+from llm.llm_client import LLMManager
 from clients.factory import get_client
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+def get_llm_manager(request: Request) -> LLMManager:
+    return request.app.state.llm_manager
+
 @router.get("/models")
-async def get_models():
+async def get_models(llm_manager: LLMManager = Depends(get_llm_manager)):
     all_models = []
     default_model_info = {}
 
-    for provider, client in llm_clients.items():
+    for provider, client in llm_manager.clients.items():
         models = client.get_available_models()
         for model_name in models:
             all_models.append({"provider": provider, "model": model_name})
@@ -42,8 +45,13 @@ async def get_all_chats(user_id: str = Depends(auth_service.get_current_user_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/chat")
-async def chat(req: ChatMessage, user_id: str = Depends(auth_service.get_current_user_id), backend: str = Query(...)):
-    stream_generator = await process_chat_request(req, user_id, backend)
+async def chat(
+    req: ChatMessage,
+    user_id: str = Depends(auth_service.get_current_user_id),
+    backend: str = Query(...),
+    llm_manager: LLMManager = Depends(get_llm_manager)
+):
+    stream_generator = await process_chat_request(req, user_id, backend, llm_manager)
     return StreamingResponse(stream_generator, media_type="text/event-stream")
 
 @router.post("/clear-session")
