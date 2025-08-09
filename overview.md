@@ -52,10 +52,13 @@
       - Defines `UNIFIED_SYSTEM_PROMPT` describing transcript packaging at the start; removes any instruction to add packaging notes in outputs.
     - **File:** `ai/openai_compatible_llm.py`
       - Formats mixed text/image parts into OpenAI-compatible payloads; streams deltas via SSE/HTTPX; handles multimodal parts.
+    - **File:** `llm/llm_client.py`
+      - Defines the `LLMManager` class, which is responsible for initializing and managing all LLM clients.
   - **Telegram Bot Architecture:**
     - Dual-client: stateful Telethon for reading; stateless Bot API for sending.
   - **Stateful Bot Logic:**
-    - `chat_modes` in `app.py` toggles summarizer vs `/aimode`.
+    - `chat_modes` in `services/bot_service.py` toggles summarizer vs `/aimode`.
+    - **LLM Abstraction:** The `LLMManager` provides a unified interface for interacting with all LLM clients. Services make a single call to the manager, which then routes the request to the appropriate client and model.
    - **Caching Architecture (Local-Day Semantics):**
      - The user’s browser timezone (IANA tz) is used for filtering, grouping, and per-day cache keys across Webex and Telegram, while preserving each provider’s API pagination.
      - File-based retrieval cache: `cache/<platform>/<user_id>/<chat_id>/<date>.json` (past days only).

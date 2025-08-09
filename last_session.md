@@ -1,16 +1,24 @@
-# Session on 2025-08-09T16:49:54Z (UTC)
+# Session on 2025-08-09T18:50:24Z (UTC)
 
 ### Key Accomplishments
-- **Final Refactoring Phase:**
-  - Completed the final phase of the `app.py` refactoring plan.
-  - Cleaned up `app.py` by removing all obsolete logic and ensuring a clean, lean structure.
-  - Moved all remaining endpoints to their respective routers (`chat`, `bots`).
-- **Bug Fixes & Validation:**
-  - Resolved critical routing issues that were causing 404 and 405 errors for the bot management and chat endpoints.
-  - Standardized the URL structure for all bot-related APIs to ensure consistency.
-  - Performed a full validation of the application to confirm that all features are working as expected.
+- **LLM Abstraction Refactor:**
+  - Introduced an `LLMManager` to encapsulate all LLM client logic, providing a single, unified interface for the rest of the application.
+  - Refactored the `bot_service` and `chat_service` to use the new `LLMManager`, removing global state and decoupling the services from the specifics of the LLM clients.
 - **Documentation:**
-  - Updated `refactor_plan.md` to mark all phases as complete.
+  - Updated `overview.md` and `refactor_plan.md` to reflect the new `LLMManager` architecture.
+
+### Next Steps
+- The application is now fully refactored. The next session can focus on new features or further enhancements.
+
+---
+# Session on 2025-08-09T18:50:24Z (UTC)
+
+### Key Accomplishments
+- **LLM Abstraction Refactor:**
+  - Introduced an `LLMManager` to encapsulate all LLM client logic, providing a single, unified interface for the rest of the application.
+  - Refactored the `bot_service` and `chat_service` to use the new `LLMManager`, removing global state and decoupling the services from the specifics of the LLM clients.
+- **Documentation:**
+  - Updated `overview.md` and `refactor_plan.md` to reflect the new `LLMManager` architecture.
 
 ### Next Steps
 - The application is now fully refactored. The next session can focus on new features or further enhancements.
