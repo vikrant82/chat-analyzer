@@ -1,0 +1,289 @@
+import { appState, config } from './state.js';
+import { makeApiRequest } from './api.js';
+import {
+    chatLoadingError, lastUpdatedTime, refreshChatsLink, modelError, modelSelect,
+    updateStartChatButtonState, getChoicesInstance, setLoadingState, chatWindow,
+    sendChatButton, downloadChatButton, downloadFormat, maxImageSize, imageProcessingToggle,
+    cacheChatsToggle, formatDate
+} from './ui.js';
+import { handleFullLogout } from './auth.js';
+
+export async function handleLoadChats() {
+    const backend = appState.activeBackend;
+    const choicesInstance = getChoicesInstance();
+    if (!backend || !choicesInstance || !appState.sessionTokens[backend]) {
+        if (chatLoadingError) chatLoadingError.textContent = "No active session.";
+        return;
+    }
+
+    const cacheKey = `${backend}-chats`;
+    const cachedChatsJSON = sessionStorage.getItem(cacheKey);
+
+    const populateChoices = (chats, source = 'new') => {
+        choicesInstance.clearStore();
+        if (chats && chats.length > 0) {
+            const chatOptions = chats.map(chat => ({
+                value: chat.id,
+                label: `${chat.title} (${chat.type})`
+            }));
+            choicesInstance.setChoices(chatOptions, 'value', 'label', false);
+        } else {
+            const label = source === 'cached' ? 'No chats found (cached)' : 'No chats found';
+            choicesInstance.setChoices([{ value: '', label: label, disabled: true }], 'value', 'label', true);
+        }
+        choicesInstance.enable();
+    };
+
+    if (cachedChatsJSON) {
+        const cachedChats = JSON.parse(cachedChatsJSON);
+        populateChoices(cachedChats, 'cached');
+        appState.chatListStatus[backend] = 'loaded';
+        if(lastUpdatedTime) lastUpdatedTime.textContent = `Last updated: (cached)`;
+        updateStartChatButtonState();
+        return;
+    }
+
+    appState.chatListStatus[backend] = 'loading';
+    choicesInstance.disable();
+    choicesInstance.clearStore();
+    choicesInstance.setChoices([{ value: '', label: 'Refreshing...', disabled: true }], 'value', 'label', true);
+    updateStartChatButtonState();
+
+    try {
+        const url = `/api/chats?backend=${backend}`;
+        const data = await makeApiRequest(url, { method: 'GET' }, config.timeouts.loadChats, refreshChatsLink, 'Refreshing...', 'chats');
+        
+        const chats = Array.isArray(data) ? data : (data.chats || []);
+        sessionStorage.setItem(cacheKey, JSON.stringify(chats));
+        
+        populateChoices(chats, 'new');
+        if(lastUpdatedTime) lastUpdatedTime.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+        appState.chatListStatus[backend] = 'loaded';
+
+    } catch(error) {
+        if (chatLoadingError) chatLoadingError.textContent = error.message || 'Failed to load chats.';
+        choicesInstance.setChoices([{ value: '', label: 'Failed to load. Click "Refresh List".', disabled: true }], 'value', 'label', true);
+        choicesInstance.enable();
+        appState.chatListStatus[backend] = 'unloaded';
+    } finally {
+        updateStartChatButtonState();
+    }
+}
+
+export async function loadModels() {
+    appState.modelsLoaded = false;
+    updateStartChatButtonState();
+    if (modelError) modelError.textContent = '';
+    if (modelSelect) {
+        modelSelect.innerHTML = '<option value="" disabled selected>Loading models...</option>';
+        modelSelect.disabled = true;
+    }
+    try {
+        const data = await makeApiRequest('/api/models', { method: 'GET' }, config.timeouts.loadModels, null, 'login');
+        if (modelSelect) modelSelect.innerHTML = '';
+
+        const modelsByProvider = data.models.reduce((acc, { provider, model }) => {
+            if (!acc[provider]) {
+                acc[provider] = [];
+            }
+            acc[provider].push(model);
+            return acc;
+        }, {});
+
+        for (const provider in modelsByProvider) {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = provider.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+            
+            modelsByProvider[provider].forEach(modelName => {
+                const option = document.createElement('option');
+                // Use a unique separator to avoid conflicts with model names
+                option.value = `${provider}_PROVIDER_SEPARATOR_${modelName}`;
+                option.textContent = modelName;
+                optgroup.appendChild(option);
+            });
+            modelSelect.appendChild(optgroup);
+        }
+
+        if (modelSelect && modelSelect.options.length > 0) {
+            modelSelect.disabled = false;
+            appState.modelsLoaded = true;
+            const defaultModelInfo = data.default_model_info;
+            if (defaultModelInfo && defaultModelInfo.provider && defaultModelInfo.model) {
+                const defaultValue = `${defaultModelInfo.provider}_PROVIDER_SEPARATOR_${defaultModelInfo.model}`;
+                if (modelSelect.querySelector(`option[value="${defaultValue}"]`)) {
+                    modelSelect.value = defaultValue;
+                }
+            }
+        } else {
+            if (modelError) modelError.textContent = 'No AI models available.';
+        }
+    } catch (error) {
+        if (modelError) modelError.textContent = 'Failed to load AI models.';
+    } finally {
+        updateStartChatButtonState();
+    }
+}
+
+export async function callChatApi(message = null) {
+    if (!appState.sessionTokens[appState.activeBackend]) {
+        alert("Session expired. Please log in again.");
+        handleFullLogout();
+        return;
+    }
+    const aiMessageElem = document.createElement('div');
+    aiMessageElem.classList.add('chat-message', 'ai-message');
+    aiMessageElem.innerHTML = '<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
+    chatWindow.appendChild(aiMessageElem);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+
+    setLoadingState(sendChatButton, true, '...');
+    
+    let fullResponseText = '';
+    try {
+        const selectedModel = modelSelect.value;
+        if (!selectedModel || !selectedModel.includes('_PROVIDER_SEPARATOR_')) {
+            throw new Error("Invalid model selection.");
+        }
+        const [provider, modelName] = selectedModel.split('_PROVIDER_SEPARATOR_');
+
+        const requestBody = {
+            chatId: getChoicesInstance().getValue(true),
+            provider: provider,
+            modelName: modelName,
+            startDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[0]),
+            endDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[1]),
+            enableCaching: cacheChatsToggle.checked,
+            conversation: appState.conversation,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            imageProcessing: {
+                enabled: imageProcessingToggle.checked,
+                max_size_bytes: parseInt(maxImageSize.value) * 1024 * 1024,
+            }
+        };
+        
+        if (message) {
+            requestBody.message = message;
+        }
+
+        const url = `/api/chat?backend=${appState.activeBackend}`;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${appState.sessionTokens[appState.activeBackend]}`
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Request failed: ${errorText}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        
+        aiMessageElem.innerHTML = ''; 
+
+        let buffer = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = JSON.parse(line.substring(6));
+                    if (data.type === 'status') {
+                        aiMessageElem.innerHTML = `<p><em>${data.message}</em></p>`;
+                    } else if (data.type === 'content') {
+                        fullResponseText += data.chunk;
+                        aiMessageElem.innerHTML = marked.parse(fullResponseText, { breaks: true, gfm: true });
+                    } else if (data.type === 'error') {
+                        fullResponseText = `<p style="color: red;"><strong>Error:</strong> ${data.message}</p>`;
+                        aiMessageElem.innerHTML = fullResponseText;
+                        break; 
+                    }
+                    chatWindow.scrollTop = chatWindow.scrollHeight;
+                }
+            }
+        }
+        
+        appState.conversation.push({ role: 'model', content: fullResponseText });
+
+    } catch (error) {
+        aiMessageElem.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${error.message}</p>`;
+    } finally {
+        setLoadingState(sendChatButton, false);
+    }
+}
+
+export async function handleDownloadChat() {
+    if (!appState.sessionTokens[appState.activeBackend]) {
+        alert("Session expired. Please log in again.");
+        handleFullLogout();
+        return;
+    }
+
+    setLoadingState(downloadChatButton, true, 'Downloading...');
+    try {
+        const requestBody = {
+            chatId: getChoicesInstance().getValue(true),
+            startDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[0]),
+            endDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[1]),
+            enableCaching: cacheChatsToggle.checked,
+            format: downloadFormat.value,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            // Ensure downloads include images by default with sane caps
+            imageProcessing: {
+                enabled: true,
+                max_size_bytes: parseInt(maxImageSize.value || "5") * 1024 * 1024,
+                // let backend defaults handle allowed types; send empty to not restrict unless user configured
+            }
+        };
+
+        const response = await fetch(`/api/download?backend=${appState.activeBackend}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${appState.sessionTokens[appState.activeBackend]}`
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Download failed: ${errorText}`);
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        
+        const contentDisposition = response.headers.get('content-disposition');
+        let filename = 'chat.txt'; // default
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+            if (filenameMatch.length > 1) {
+                filename = filenameMatch[1];
+            }
+        }
+        
+        a.setAttribute('download', filename);
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+    } catch (error) {
+        alert(error.message);
+    } finally {
+        setLoadingState(downloadChatButton, false);
+    }
+}
