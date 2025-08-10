@@ -20,7 +20,7 @@
 - `llm/`: Manages LLM provider clients (e.g., Google AI, LM Studio).
 - `routers/`: FastAPI API endpoint definitions.
 - `services/`: Core business logic (auth, chat processing, downloads).
-- `static/`: Frontend HTML, CSS, and JavaScript files.
+- `static/`: Frontend HTML, CSS, and modular JavaScript files (`static/js/`).
 - `bot_manager.py`: Handles registration and persistence of bot configurations into `config.json`.
 - `app.py`: Main FastAPI application entry point.
 - `config.json`: User-managed file for API keys, credentials, and bot settings.

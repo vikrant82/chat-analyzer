@@ -2,7 +2,7 @@
 
 ## 1. Core Technologies
 - **Backend:** Python 3.11+ with the FastAPI framework.
-- **Frontend:** Standard HTML, CSS, and vanilla JavaScript. No complex frontend frameworks are used, keeping it simple and universally compatible.
+- **Frontend:** Standard HTML, CSS, and vanilla JavaScript (ES6 Modules). The frontend is built as a modular single-page application without complex frameworks to ensure simplicity and broad compatibility.
 - **Containerization:** Docker and Docker Compose are used for building, shipping, and running the application in a consistent environment.
 
 ## 2. Key Dependencies

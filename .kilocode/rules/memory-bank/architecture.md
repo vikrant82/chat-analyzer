@@ -2,7 +2,7 @@
 
 ## 1. Core Components
 The application follows a classic 3-tier architecture:
-- **Frontend (Presentation Layer):** A standard single-page application built with HTML, CSS, and vanilla JavaScript, located in the `static/` directory.
+- **Frontend (Presentation Layer):** A modular single-page application built with HTML, CSS, and vanilla JavaScript (using ES6 modules), located in the `static/` directory. The JavaScript is organized into single-responsibility modules within `static/js/`.
 - **Backend (Business/Application Layer):** A Python-based API built with the FastAPI framework. This layer contains all business logic, service integrations, and API endpoints.
 - **Data & Integration Layer:** This is not a traditional database but a collection of clients and managers that interact with external services (Telegram, Webex, LLM providers) and local storage (session files, cache).
 
@@ -72,4 +72,4 @@ graph TD
 - **Core Business Logic:** [`services/`](./services/)
 - **External Service Clients:** [`clients/`](./clients/)
 - **LLM Integration:** [`llm/`](./llm/), [`ai/`](./ai/)
-- **Frontend:** [`static/`](./static/)
+- **Frontend:** [`static/`](./static/) (HTML/CSS) and [`static/js/`](./static/js/) (Modular JavaScript)
