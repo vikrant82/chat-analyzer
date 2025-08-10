@@ -1,18 +1,20 @@
 from .base_client import ChatClient
-from .telegram_client_impl import TelegramClientImpl
-from .webex_client_impl import WebexClientImpl
+from .telegram_client import TelegramClient
+from .webex_client import WebexClient
 
 # Keep instances cached to reuse connections and tokens
-_clients = {
-    "telegram": TelegramClientImpl(),
-    "webex": WebexClientImpl()
-}
+_clients = {}
 
 def get_client(backend_name: str) -> ChatClient:
     """
     Factory function to get the appropriate client instance.
     """
-    client = _clients.get(backend_name)
-    if not client:
-        raise ValueError(f"Unknown client backend: {backend_name}")
-    return client
+    if backend_name not in _clients:
+        if backend_name == "telegram":
+            _clients[backend_name] = TelegramClient()
+        elif backend_name == "webex":
+            _clients[backend_name] = WebexClient()
+        else:
+            raise ValueError(f"Unknown client backend: {backend_name}")
+            
+    return _clients[backend_name]

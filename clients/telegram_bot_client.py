@@ -2,11 +2,9 @@ import httpx
 import logging
 from typing import Optional, List, Any
 from datetime import datetime, timedelta, timezone
-from telethon import TelegramClient
 from telethon.tl.types import User as TelethonUser, Channel as TelethonChannel
 
 from .base_client import Message, User
-from .telegram_client_impl import API_ID, API_HASH
 
 logger = logging.getLogger(__name__)
 

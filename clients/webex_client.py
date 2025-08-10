@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from .base_client import ChatClient, Chat, Message, User, Attachment
-from WebexClient import WebexClient
+from .webex_api_client import WebexClient as WebexApiClient
 import json
 import logging
 
@@ -28,7 +28,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 TOKEN_STORAGE_PATH = os.path.join(SESSION_DIR, 'webex_tokens.json')
 
 
-class WebexClientImpl(ChatClient):
+class WebexClient(ChatClient):
     def __init__(self):
         client_id = WEBEX_CONFIG.get('client_id')
         client_secret = WEBEX_CONFIG.get('client_secret')
@@ -37,7 +37,7 @@ class WebexClientImpl(ChatClient):
         if client_id is None or client_secret is None or redirect_uri is None:
             raise ValueError("Webex client_id, client_secret, and redirect_uri must be set in config.json")
 
-        self.api = WebexClient(
+        self.api = WebexApiClient(
             client_id=client_id,
             client_secret=client_secret,
             redirect_uri=redirect_uri,

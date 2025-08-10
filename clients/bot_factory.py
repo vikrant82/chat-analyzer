@@ -1,6 +1,6 @@
 from typing import Optional
-from .telegram_bot_client_impl import TelegramBotClient
-from .webex_bot_client_impl import WebexBotClient
+from .telegram_bot_client import TelegramBotClient
+from .webex_bot_client import WebexBotClient
 
 class UnifiedBotClient:
     def __init__(self, client):

@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from clients.base_client import Message as StandardMessage
 from clients.bot_factory import get_bot_client
 from clients.factory import get_client
-from clients.telegram_bot_client_impl import TelegramBotClient
+from clients.telegram_bot_client import TelegramBotClient
 from llm.llm_client import LLMManager
 from services import auth_service
 from services.chat_service import _format_messages_for_llm

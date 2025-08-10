@@ -43,8 +43,8 @@
     - `download_service.py`: Creates downloadable files in various formats.
 - **`clients/`**:
     - `factory.py`: Returns the correct client instance based on the selected backend (`telegram` or `webex`).
-    - `telegram_client_impl.py`: Uses Telethon to read chat history, reconstructs threads from reply chains, and handles caching.
-    - `webex_client_impl.py`: Uses native thread IDs and handles caching with timezone awareness.
+    - `telegram_client.py`: Uses Telethon to read chat history, reconstructs threads from reply chains, and handles caching.
+    - `webex_client.py`: Uses native thread IDs and handles caching with timezone awareness.
 - **`llm/llm_client.py`**: The `LLMManager` initializes all configured LLM providers (Google AI, LM Studio, etc.), discovers their available models, and provides a unified `call_conversational` method for services to use.
 - **`bot_manager.py`**: Provides methods to read, add, and remove bot configurations from the `config.json` file, ensuring changes are persisted.
 - **Caching Architecture:**

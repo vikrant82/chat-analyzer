@@ -48,15 +48,15 @@ graph TD
 ## 4. Critical Implementation Paths
 - **Authentication Flow:**
   1. Frontend requests login from `routers/auth.py`.
-  2. `auth_service.py` calls the appropriate client (`telegram_client_impl.py` or `webex_client_impl.py`).
+  2. `auth_service.py` calls the appropriate client (`telegram_client.py` or `webex_client.py`).
   3. The client handles the service-specific auth dance (phone code or OAuth).
   4. Upon success, `auth_service.py` creates a session and returns a token to the frontend.
 - **Chat Analysis Flow:**
   1. Frontend sends a request to `POST /api/chat` in `routers/chat.py`.
   2. The router calls `services/chat_service.py:process_chat_request`.
   3. `chat_service` gets the appropriate chat client via the factory to fetch messages.
-  4. The client (`telegram_client_impl.py` or `webex_client_impl.py`) retrieves messages, handling caching and timezone conversions.
-  5. `telegram_client_impl.py` performs its complex thread reconstruction logic.
+  4. The client (`telegram_client.py` or `webex_client.py`) retrieves messages, handling caching and timezone conversions.
+  5. `telegram_client.py` performs its complex thread reconstruction logic.
   6. `chat_service` formats the messages and sends them to the `llm/llm_client.py:LLMManager`.
   7. `LLMManager` routes the request to the correct LLM provider.
   8. The response is streamed back through the layers to the frontend.

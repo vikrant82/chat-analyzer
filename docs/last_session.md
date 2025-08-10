@@ -65,7 +65,7 @@
   - Corrected imports to explicit modules per Pylance guidance.
 - Honored image-processing settings consistently across providers
   - Telegram now respects image-processing enable/disable and size/MIME filters like Webex.
-  - Added explicit log when disabled: “Image processing is disabled by configuration. Skipping file download.” in `clients/telegram_client_impl.py`.
+  - Added explicit log when disabled: “Image processing is disabled by configuration. Skipping file download.” in `clients/telegram_client.py`.
 - Persisted image-processing UI options (disabled by default)
   - Frontend now persists:
     - Enable/disable image processing checkbox (default: disabled)
@@ -88,12 +88,12 @@
 
 ### Key Accomplishments
 - Telegram threading preservation and reconstruction
-  - Reconfirmed and documented the reply-chain reconstruction strategy in `clients/telegram_client_impl.py` and transcript packaging in `app.py`. Threads are reconstructed by resolving reply-chain roots, assigning a stable `thread_id` to the root, and grouping replies under that root. Orphaned chains are grouped by first-reply timestamp for deterministic ordering.
+  - Reconfirmed and documented the reply-chain reconstruction strategy in `clients/telegram_client.py` and transcript packaging in `app.py`. Threads are reconstructed by resolving reply-chain roots, assigning a stable `thread_id` to the root, and grouping replies under that root. Orphaned chains are grouped by first-reply timestamp for deterministic ordering.
   - Transcript packaging emits explicit thread boundaries (“--- Thread Started/Ended ---”) and reply context hints for the LLM.
 - Global image processing options (provider-agnostic)
   - UI exposes Image Processing Options for all providers; backend applies the same configuration to Telegram and Webex. Images are optionally downloaded, size/mime-gated, base64-encoded, and provided to multimodal models as structured `image_url` parts with adjacent caption grounding. See `static/script.js` and `app.py`.
 - Local-day bucketing and caching (timezone-agnostic)
-  - Local-day semantics are applied based on the user’s browser timezone (IANA tz, e.g., Asia/Kolkata) for day filtering, grouping, and per-day caching keys while preserving each provider’s native pagination. Removed IST-specific wording. See `clients/webex_client_impl.py` and `clients/telegram_client_impl.py`.
+  - Local-day semantics are applied based on the user’s browser timezone (IANA tz, e.g., Asia/Kolkata) for day filtering, grouping, and per-day caching keys while preserving each provider’s native pagination. Removed IST-specific wording. See `clients/webex_client.py` and `clients/telegram_client.py`.
 - Downloads with images
   - Added support for HTML (images embedded) and ZIP (transcript.txt, transcript_with_images.html, images/, manifest.json). TXT/PDF remain text-only.
 - Prompt refinements
@@ -123,10 +123,10 @@
 
 ### Key Accomplishments:
 - Webex date handling aligned to user-local timezone semantics
-  - Implemented local-day filtering, grouping, and caching in `clients/webex_client_impl.py`, using start/end as user-local inclusive day range, converting messages to the user’s timezone before bucketing, and determining "today" in the user’s local timezone (IANA tz from browser).
+  - Implemented local-day filtering, grouping, and caching in `clients/webex_client.py`, using start/end as user-local inclusive day range, converting messages to the user’s timezone before bucketing, and determining "today" in the user’s local timezone (IANA tz from browser).
   - Preserved Webex API pagination while switching comparisons to local-day windows.
 - Telegram date handling made consistent with Webex and user-local timezone
-  - Updated `clients/telegram_client_impl.py` to use user-local day windows, group/cache by local days, treat Telethon message timestamps as UTC if naive, and compute cacheability by the user’s local “today”.
+  - Updated `clients/telegram_client.py` to use user-local day windows, group/cache by local days, treat Telethon message timestamps as UTC if naive, and compute cacheability by the user’s local “today”.
 - Verified behavior against user-provided screenshots and UX inputs: date selections in local-day now include messages exactly as shown for those days.
 - No changes to message sorting format; ISO 8601 strings remain stable, with option to harden later by sorting on parsed datetimes.
 
@@ -144,7 +144,7 @@
 *   **Feature: Configurable Image Processing (Webex)**
     *   Implemented a new configuration section in `example-config.json` to allow global control over image processing, including enabling/disabling the feature, setting max file sizes, and defining allowed MIME types.
     *   Added a collapsible "Image Processing Options" section to the UI, which appears only for the Webex backend, allowing users to override global settings on a per-request basis.
-    *   Updated the backend logic in `app.py` and `clients/webex_client_impl.py` to enforce these new rules.
+    *   Updated the backend logic in `app.py` and `clients/webex_client.py` to enforce these new rules.
 *   **Bug Fixes & Hardening:**
     *   Resolved a critical timezone bug in `static/script.js` that caused incorrect date ranges to be sent to the backend.
     *   Fixed a caching flaw where the file-based cache was being used even when the user disabled caching in the UI.
@@ -206,7 +206,7 @@ In this session, we implemented support for threaded conversations in Webex.
 
 ## Key Accomplishments:
 
-*   **Grouped Messages by Thread ID**: We modified the `clients/webex_client_impl.py` file to group messages by `thread_id`.
+*   **Grouped Messages by Thread ID**: We modified the `clients/webex_client.py` file to group messages by `thread_id`.
 *   **Formatted Threaded Messages for the LLM**: We modified the `app.py` file to format threaded messages for the LLM.
 *   **Enhanced System Prompts**: We enhanced the system prompts to explain the new thread markers to the LLM.
 *   **Updated Downloaded Artifacts**: We updated the download functionality to format the chat history with the same threaded structure.
