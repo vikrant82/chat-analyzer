@@ -130,13 +130,21 @@ function updateStartChatButtonState() {
     const validDateSelected = datePicker && datePicker._flatpickr && datePicker._flatpickr.selectedDates.length === 2;
     const validChatSelected = choicesInstance && choicesInstance.getValue(true) != null && choicesInstance.getValue(true) !== "";
     const validModelSelected = modelSelect && modelSelect.value && !modelSelect.options[modelSelect.selectedIndex]?.disabled;
-    const baseRequirementsMet = appState.chatListStatus[appState.activeBackend] === 'loaded' && appState.modelsLoaded && validChatSelected && validModelSelected && validDateSelected;
-    startChatButton.disabled = !baseRequirementsMet;
+    
+    const coreRequirementsMet = appState.chatListStatus[appState.activeBackend] === 'loaded' && appState.modelsLoaded && validChatSelected && validModelSelected && validDateSelected;
+
+    const questionToggled = toggleQuestionCheckbox && toggleQuestionCheckbox.checked;
+    const questionText = initialQuestion && initialQuestion.value.trim();
+    const questionRequirementMet = !questionToggled || (questionToggled && questionText !== '');
+
+    startChatButton.disabled = !coreRequirementsMet || !questionRequirementMet;
+
     if (downloadChatButton) {
         downloadChatButton.disabled = !validChatSelected || !validDateSelected;
     }
+    
     if (initialQuestion) {
-        initialQuestion.disabled = !baseRequirementsMet;
+        initialQuestion.disabled = !coreRequirementsMet;
     }
 }
 
@@ -369,6 +377,7 @@ async function handleFullLogout() {
     
     if (backend) {
         localStorage.removeItem(getSessionTokenKey(backend));
+        sessionStorage.removeItem(`${backend}-chats`);
         appState.sessionTokens[backend] = null;
         appState.chatListStatus[backend] = 'unloaded';
     }
@@ -396,6 +405,33 @@ async function handleLoadChats() {
         return;
     }
 
+    const cacheKey = `${backend}-chats`;
+    const cachedChatsJSON = sessionStorage.getItem(cacheKey);
+
+    const populateChoices = (chats, source = 'new') => {
+        choicesInstance.clearStore();
+        if (chats && chats.length > 0) {
+            const chatOptions = chats.map(chat => ({
+                value: chat.id,
+                label: `${chat.title} (${chat.type})`
+            }));
+            choicesInstance.setChoices(chatOptions, 'value', 'label', false);
+            choicesInstance.enable();
+        } else {
+            const label = source === 'cached' ? 'No chats found (cached)' : 'No chats found';
+            choicesInstance.setChoices([{ value: '', label: label, disabled: true }], 'value', 'label', true);
+        }
+    };
+
+    if (cachedChatsJSON) {
+        const cachedChats = JSON.parse(cachedChatsJSON);
+        populateChoices(cachedChats, 'cached');
+        appState.chatListStatus[backend] = 'loaded';
+        if(lastUpdatedTime) lastUpdatedTime.textContent = `Last updated: (cached)`;
+        updateStartChatButtonState();
+        return;
+    }
+
     appState.chatListStatus[backend] = 'loading';
     choicesInstance.disable();
     choicesInstance.clearStore();
@@ -406,18 +442,11 @@ async function handleLoadChats() {
         const url = `/api/chats?backend=${backend}`;
         const data = await makeApiRequest(url, { method: 'GET' }, config.timeouts.loadChats, refreshChatsLink, 'Refreshing...', 'chats');
         
-        choicesInstance.clearStore();
-        if (data && data.length > 0) {
-            const chatOptions = data.map(chat => ({
-                value: chat.id,
-                label: `${chat.title} (${chat.type})`
-            }));
-            choicesInstance.setChoices(chatOptions, 'value', 'label', false);
-            choicesInstance.enable();
-            if(lastUpdatedTime) lastUpdatedTime.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
-        } else {
-            choicesInstance.setChoices([{ value: '', label: 'No chats found', disabled: true }], 'value', 'label', true);
-        }
+        const chats = data.chats || [];
+        sessionStorage.setItem(cacheKey, JSON.stringify(chats));
+        
+        populateChoices(chats, 'new');
+        if(lastUpdatedTime) lastUpdatedTime.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
         appState.chatListStatus[backend] = 'loaded';
 
     } catch(error) {
@@ -822,6 +851,7 @@ document.addEventListener('DOMContentLoaded', () => {
         cacheChatsToggle.checked = saved === null ? true : saved === 'true';
         cacheChatsToggle.addEventListener('change', () => {
             localStorage.setItem(CACHE_CHATS_KEY, cacheChatsToggle.checked ? 'true' : 'false');
+            updateStartChatButtonState();
         });
     }
 
@@ -830,6 +860,7 @@ document.addEventListener('DOMContentLoaded', () => {
         imageProcessingToggle.checked = savedEnabled === null ? false : savedEnabled === 'true';
         imageProcessingToggle.addEventListener('change', () => {
             localStorage.setItem(IMAGE_PROCESSING_ENABLED_KEY, imageProcessingToggle.checked);
+            updateStartChatButtonState();
         });
     }
 
@@ -838,13 +869,19 @@ document.addEventListener('DOMContentLoaded', () => {
         maxImageSize.value = savedSize === null ? '5' : savedSize;
         maxImageSize.addEventListener('change', () => {
             localStorage.setItem(MAX_IMAGE_SIZE_KEY, maxImageSize.value);
+            updateStartChatButtonState();
         });
     }
 
     if (toggleQuestionCheckbox && initialQuestionGroup) {
         toggleQuestionCheckbox.addEventListener('change', () => {
             initialQuestionGroup.style.display = toggleQuestionCheckbox.checked ? 'block' : 'none';
+            updateStartChatButtonState();
         });
+    }
+
+    if (initialQuestion) {
+        initialQuestion.addEventListener('input', updateStartChatButtonState);
     }
 
     if (backendSelect) backendSelect.addEventListener('change', handleBackendChange);
@@ -853,7 +890,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if (webexLoginButton) webexLoginButton.addEventListener('click', handleLogin);
     if (verifyButton) verifyButton.addEventListener('click', handleVerify);
     if (logoutButton) logoutButton.addEventListener('click', handleFullLogout);
-    if (refreshChatsLink) refreshChatsLink.addEventListener('click', handleLoadChats);
+    if (refreshChatsLink) {
+        refreshChatsLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            const backend = appState.activeBackend;
+            if (backend) {
+                const cacheKey = `${backend}-chats`;
+                sessionStorage.removeItem(cacheKey);
+            }
+            handleLoadChats();
+        });
+    }
     
     if (modelSelect) modelSelect.addEventListener('change', updateStartChatButtonState);
     if (backendSelectMain) {
