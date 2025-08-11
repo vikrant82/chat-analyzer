@@ -150,7 +150,9 @@ class OpenAICompatibleLLM(LLMClient):
 
             if isinstance(content, str):
                 # Simple text message
-                formatted.append({"role": role, "content": content})
+                # Translate our internal 'model' role to OpenAI's 'assistant' role
+                api_role = "assistant" if role == "model" else role
+                formatted.append({"role": api_role, "content": content})
             elif isinstance(content, list):
                 # This is a multi-part message (text + images)
                 openai_parts = []
@@ -169,5 +171,7 @@ class OpenAICompatibleLLM(LLMClient):
                                 }
                             })
                 if openai_parts:
-                    formatted.append({"role": role, "content": openai_parts})
+                    # Translate our internal 'model' role to OpenAI's 'assistant' role
+                    api_role = "assistant" if role == "model" else role
+                    formatted.append({"role": api_role, "content": openai_parts})
         return formatted
