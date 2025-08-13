@@ -80,16 +80,31 @@ export function getChoicesInstance() {
 
 export function setLoadingState(buttonElement, isLoading, loadingText = 'Processing...') {
     if (!buttonElement) return;
-    if (isLoading) {
-        buttonElement.dataset.originalText = buttonElement.textContent;
-        buttonElement.textContent = loadingText;
-        buttonElement.disabled = true;
-    } else {
-        if (buttonElement.dataset.originalText) {
-            buttonElement.textContent = buttonElement.dataset.originalText;
+
+    if (buttonElement.id === 'sendChatButton') {
+        if (isLoading) {
+            buttonElement.dataset.originalText = buttonElement.textContent;
+            buttonElement.textContent = 'Stop';
+            buttonElement.disabled = false; // Keep it enabled to be clickable
+            buttonElement.classList.add('stop-button');
+        } else {
+            buttonElement.textContent = buttonElement.dataset.originalText || 'Send';
+            buttonElement.disabled = false;
+            buttonElement.classList.remove('stop-button');
+            delete buttonElement.dataset.originalText;
         }
-        buttonElement.disabled = false;
-        delete buttonElement.dataset.originalText;
+    } else {
+        if (isLoading) {
+            buttonElement.dataset.originalText = buttonElement.textContent;
+            buttonElement.textContent = loadingText;
+            buttonElement.disabled = true;
+        } else {
+            if (buttonElement.dataset.originalText) {
+                buttonElement.textContent = buttonElement.dataset.originalText;
+            }
+            buttonElement.disabled = false;
+            delete buttonElement.dataset.originalText;
+        }
     }
 }
 

@@ -464,6 +464,10 @@ input:checked + .slider:before {
     width: auto;
 }
 
+#sendChatButton.stop-button {
+    background-color: var(--error-color);
+}
+
 #toggleLhsButton {
     width: auto;
     flex-shrink: 0;

@@ -109,6 +109,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (sendChatButton) {
         sendChatButton.addEventListener('click', () => {
+            if (appState.chatRequestController) {
+                callChatApi(); // This will trigger the abort logic
+                return;
+            }
             const message = chatInput.value.trim();
             if (message) {
                 appState.conversation.push({ role: 'user', content: message });

@@ -12,6 +12,7 @@ The application features a robust caching system to ensure fast, repeated analys
     -   Engage in a continuous conversation with the AI about your chat data.
     -   Ask follow-up questions without re-submitting the initial query.
     -   The AI maintains context throughout the conversation.
+    -   **Stop Generation**: Cancel an in-progress AI response at any time.
 -   **AI-Powered Analysis & Bot Integration**:
     -   **Threaded Conversation Support (Webex + Telegram)**: Preserves native threading context end-to-end.
         - Webex: Groups by parent/threadId as before.

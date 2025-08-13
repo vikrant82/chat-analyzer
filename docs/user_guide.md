@@ -27,9 +27,10 @@ Once logged in, you will be on the "Analyze Chats" screen.
 5.  **Configure Image Processing**: Globally toggle image analysis and set a maximum image size (MB); applies to all providers.
 6.  **(Optional) Start with a Specific Question**: Before starting the chat, you can enter a specific question in the text box. If you do, the AI will answer that question directly instead of providing a general summary.
 7.  **Start Chat**: Click the **"Start Chat"** button to begin the analysis and open the conversational chat window.
-8.  **Ask Follow-up Questions**: Use the chat input to ask follow-up questions about the analyzed data.
-9.  **Clear & Start New**: Click the **"Clear & Start New"** button to clear the conversation and start a new analysis.
-10. **Download Results**: Use the Download menu to export:
+8.  **Stop Generation**: While the AI is generating a response, the "Send" button will turn into a red "Stop" button. Click it at any time to cancel the current analysis.
+9.  **Ask Follow-up Questions**: Use the chat input to ask follow-up questions about the analyzed data.
+10. **Clear & Start New**: Click the **"Clear & Start New"** button to clear the conversation and start a new analysis.
+11. **Download Results**: Use the Download menu to export:
     - Text (.txt) and PDF (.pdf): text-only.
     - HTML (.html): images embedded inline via data URIs.
     - ZIP (.zip): transcript.txt, transcript_with_images.html referencing images/, images files, and manifest.json metadata.

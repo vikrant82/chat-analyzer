@@ -125,20 +125,27 @@ export async function loadModels() {
 }
 
 export async function callChatApi(message = null) {
+    if (appState.chatRequestController) {
+        appState.chatRequestController.abort();
+        return;
+    }
+
     if (!appState.sessionTokens[appState.activeBackend]) {
         alert("Session expired. Please log in again.");
         handleFullLogout();
         return;
     }
+
     const aiMessageElem = document.createElement('div');
     aiMessageElem.classList.add('chat-message', 'ai-message');
     aiMessageElem.innerHTML = '<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
     chatWindow.appendChild(aiMessageElem);
     chatWindow.scrollTop = chatWindow.scrollHeight;
 
-    setLoadingState(sendChatButton, true, '...');
-    
+    setLoadingState(sendChatButton, true);
+    appState.chatRequestController = new AbortController();
     let fullResponseText = '';
+
     try {
         const selectedModel = modelSelect.value;
         if (!selectedModel || !selectedModel.includes('_PROVIDER_SEPARATOR_')) {
@@ -173,7 +180,8 @@ export async function callChatApi(message = null) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${appState.sessionTokens[appState.activeBackend]}`
             },
-            body: JSON.stringify(requestBody)
+            body: JSON.stringify(requestBody),
+            signal: appState.chatRequestController.signal
         });
 
         if (!response.ok) {
@@ -213,12 +221,21 @@ export async function callChatApi(message = null) {
             }
         }
         
-        appState.conversation.push({ role: 'model', content: fullResponseText });
+        if (fullResponseText) {
+            appState.conversation.push({ role: 'model', content: fullResponseText });
+        }
 
     } catch (error) {
-        aiMessageElem.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${error.message}</p>`;
+        if (error.name !== 'AbortError') {
+            aiMessageElem.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${error.message}</p>`;
+        } else {
+            if (aiMessageElem.innerHTML.trim() === '') {
+                 aiMessageElem.remove();
+            }
+        }
     } finally {
         setLoadingState(sendChatButton, false);
+        appState.chatRequestController = null;
     }
 }
 

@@ -6,6 +6,7 @@ export const appState = {
         analysis: false,
         session: false,
     },
+    chatRequestController: null,
     chatLoadController: null,
     activeBackend: null, // 'telegram' or 'webex'
     sessionTokens: { telegram: null, webex: null }, // The single source of truth for auth
