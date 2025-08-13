@@ -1,7 +1,7 @@
 import { appState, CACHE_CHATS_KEY, IMAGE_PROCESSING_ENABLED_KEY, MAX_IMAGE_SIZE_KEY, config } from './state.js';
 import { makeApiRequest } from './api.js';
 import {
-    initializeChoices, initializeFlatpickr, updateStartChatButtonState, showSection,
+    initializeChoices, initializeFlatpickr, updateStartChatButtonState, showSection, getChoicesInstance,
     startChatButton, dateError, chatWindow, initialQuestion, sendChatButton, chatInput,
     clearChatButton, welcomeMessage, toggleQuestionCheckbox, initialQuestionGroup,
     cacheChatsToggle, imageProcessingToggle, maxImageSize, backendSelect,
@@ -59,6 +59,48 @@ window.showSection = showSectionWithLogic;
 
 
 document.addEventListener('DOMContentLoaded', () => {
+    const RECENT_CHATS_KEY = 'chat_analyzer_recent_chats';
+    const MAX_RECENT_CHATS = 10;
+
+    function loadRecentChats() {
+        const recentChats = JSON.parse(localStorage.getItem(RECENT_CHATS_KEY)) || [];
+        const recentChatsContainer = document.getElementById('recentChats');
+        const recentChatsList = document.getElementById('recentChatsList');
+
+        if (recentChats.length > 0) {
+            recentChatsList.innerHTML = '';
+            recentChats.forEach(chat => {
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.href = '#';
+                a.textContent = chat.label;
+                a.dataset.chatId = chat.value;
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const choices = getChoicesInstance();
+                    if (choices) {
+                        choices.setChoiceByValue(chat.value);
+                    }
+                });
+                li.appendChild(a);
+                recentChatsList.appendChild(li);
+            });
+            recentChatsContainer.style.display = 'block';
+        }
+    }
+
+    function addChatToRecents(chat) {
+        let recentChats = JSON.parse(localStorage.getItem(RECENT_CHATS_KEY)) || [];
+        // Remove if already exists to avoid duplicates and move to top
+        recentChats = recentChats.filter(c => c.value !== chat.value);
+        recentChats.unshift(chat);
+        if (recentChats.length > MAX_RECENT_CHATS) {
+            recentChats.pop();
+        }
+        localStorage.setItem(RECENT_CHATS_KEY, JSON.stringify(recentChats));
+        loadRecentChats();
+    }
+
     function closeMobileMenu() {
         if (mainContainer.classList.contains('mobile-menu-open')) {
             mainContainer.classList.remove('mobile-menu-open');
@@ -90,6 +132,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 userMessageElem.textContent = question;
                 chatWindow.appendChild(userMessageElem);
                 initialQuestion.value = '';
+            }
+            const selectedChat = getChoicesInstance().getValue();
+            if (selectedChat) {
+                addChatToRecents(selectedChat);
             }
 
             const chatColumn = document.getElementById('conversationalChatSection');
@@ -293,6 +339,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     checkSessionOnLoad();
+    loadRecentChats();
 
     if (manageBotsButton) manageBotsButton.addEventListener('click', () => {
         showSectionWithLogic('botManagementSection');
