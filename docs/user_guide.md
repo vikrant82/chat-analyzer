@@ -36,6 +36,14 @@ Once logged in, you will be on the "Analyze Chats" screen.
     - ZIP (.zip): transcript.txt, transcript_with_images.html referencing images/, images files, and manifest.json metadata.
     Use HTML or ZIP to include images in the export.
 
+### Using Recent Chats
+
+Below the main controls, you will find a "Recent Chats" list. This feature helps you quickly return to previous analysis sessions.
+
+-   **Backend Specific**: The list is specific to the currently selected backend (Telegram or Webex).
+-   **Restore Session**: Clicking on a chat name will instantly restore all the settings from that session, including the AI model, date range, and any specific question you asked. You can then modify these settings or click "Start Chat".
+-   **Quick Start**: Clicking the **"Go"** button next to a chat name will restore the session settings *and* immediately start the analysis, taking you directly to the chat window.
+
 ### About Threading (Why this matters for Telegram)
 Telegram conversations often interleave replies across multiple topics, making it hard to follow context. The analyzer reconstructs Telegram reply chains, assigns a deterministic thread root, and presents replies under the correct root—resulting in coherent threads for summaries and Q&A. This dramatically reduces confusion when analyzing busy Telegram groups.
 

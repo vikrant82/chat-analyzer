@@ -1,3 +1,22 @@
+# Session on 2025-08-14T03:17:00Z (UTC)
+
+### Key Accomplishments
+- **Stop Chat Generation:** Implemented a "Stop" button that appears during AI response generation, allowing users to cancel the request mid-stream.
+- **"Recent Chats" Feature:**
+  - Implemented a "Recent Chats" list on the main chat analysis screen to improve user workflow.
+  - The feature saves a snapshot of the analysis session, including the selected chat, AI model, date range, and other settings.
+  - Users can click a chat name to restore all settings to the left panel or click a "Go" button to immediately re-run the analysis.
+  - Made the feature backend-aware, so it only displays recent chats relevant to the currently selected service (Telegram or Webex).
+- **Bug Fixes:**
+  - Resolved a series of JavaScript `TypeError` exceptions related to uninitialized UI components, making the application more stable.
+- **Documentation:**
+  - Updated `docs/user_guide.md` with a new section explaining how to use the "Recent Chats" feature.
+  - Updated `docs/overview.md` to include the new feature in the "Core Functionality" summary.
+
+### Next Steps
+- The application is now more user-friendly with the addition of the "Recent Chats" feature. The next session can focus on further enhancements or new features.
+
+---
 # Session on 2025-08-10T01:28:00Z (UTC)
 
 ### Key Accomplishments
@@ -124,7 +143,7 @@
 ### Key Accomplishments:
 - Webex date handling aligned to user-local timezone semantics
   - Implemented local-day filtering, grouping, and caching in `clients/webex_client.py`, using start/end as user-local inclusive day range, converting messages to the user’s timezone before bucketing, and determining "today" in the user’s local timezone (IANA tz from browser).
-  - Preserved Webex API pagination while switching comparisons to local-day windows.
+  - Preserved Webex API pagination while switching comparisons to local-day equivalents.
 - Telegram date handling made consistent with Webex and user-local timezone
   - Updated `clients/telegram_client.py` to use user-local day windows, group/cache by local days, treat Telethon message timestamps as UTC if naive, and compute cacheability by the user’s local “today”.
 - Verified behavior against user-provided screenshots and UX inputs: date selections in local-day now include messages exactly as shown for those days.

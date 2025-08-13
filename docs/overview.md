@@ -5,6 +5,8 @@
 - **Users:** End-users seeking to understand chat conversations and developers looking for a reference implementation.
 - **Core Functionality:**
     - **Web & Bot Interaction:** Main interface is a web UI. Optional bots for Webex and Telegram can be registered to trigger analysis.
+    - **Cancellable AI Responses:** Users can stop an in-progress AI response stream at any time via a "Stop" button in the UI.
+    - **Recent Chats:** The UI includes a "Recent Chats" feature that saves analysis sessions (including model, date range, and other settings), allowing users to quickly restore and re-run previous analyses.
     - **Advanced Threading:** Reconstructs and preserves conversation threads from both Webex (native) and Telegram (reply-chains) to provide accurate context to the LLM.
     - **Multimodal Analysis:** Can process and analyze images within conversations, subject to user-defined rules (size, type, etc.).
 

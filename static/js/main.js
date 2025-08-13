@@ -14,6 +14,77 @@ import { handleLogin, handleVerify, handleFullLogout, checkSessionOnLoad, handle
 import { handleLoadChats, callChatApi, handleDownloadChat, loadModels } from './chat.js';
 import { handleRegisterBot, loadBots } from './bot.js';
 
+const RECENT_CHATS_KEY = 'chat_analyzer_recent_chats';
+const MAX_RECENT_CHATS = 10;
+
+function loadRecentChats() {
+    const allRecentChats = JSON.parse(localStorage.getItem(RECENT_CHATS_KEY)) || [];
+    const recentChats = allRecentChats.filter(s => s.backend === appState.activeBackend);
+    const recentChatsContainer = document.getElementById('recentChats');
+    const recentChatsList = document.getElementById('recentChatsList');
+
+    if (recentChatsContainer && recentChatsList) {
+        if (recentChats.length > 0) {
+            recentChatsList.innerHTML = '';
+            recentChats.forEach(session => {
+                const li = document.createElement('li');
+                li.innerHTML = `
+                    <a href="#" class="recent-chat-name">${session.chat.label}</a>
+                    <button class="go-button">Go</button>
+                `;
+                
+                li.querySelector('.recent-chat-name').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    restoreSession(session);
+                });
+
+                li.querySelector('.go-button').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    restoreSession(session);
+                    startChatButton.click();
+                });
+
+                recentChatsList.appendChild(li);
+            });
+            recentChatsContainer.style.display = 'block';
+        } else {
+            recentChatsContainer.style.display = 'none';
+        }
+    }
+}
+
+function restoreSession(session) {
+    const choices = getChoicesInstance();
+    if (choices) {
+        choices.setChoiceByValue(session.chat.value);
+    }
+    modelSelect.value = session.model;
+    const datePickerEl = document.getElementById('dateRangePicker');
+    if (datePickerEl && datePickerEl._flatpickr) {
+        const datePicker = datePickerEl._flatpickr;
+        datePicker.setDate([session.startDate, session.endDate], false);
+    }
+    cacheChatsToggle.checked = session.caching;
+    imageProcessingToggle.checked = session.imageProcessing.enabled;
+    maxImageSize.value = session.imageProcessing.maxSizeMb;
+    toggleQuestionCheckbox.checked = !!session.question;
+    initialQuestionGroup.style.display = session.question ? 'block' : 'none';
+    initialQuestion.value = session.question || '';
+}
+
+function addChatToRecents(session) {
+    let recentChats = JSON.parse(localStorage.getItem(RECENT_CHATS_KEY)) || [];
+    // Filter out existing chat for the same backend
+    recentChats = recentChats.filter(s => !(s.chat.value === session.chat.value && s.backend === session.backend));
+    recentChats.unshift(session);
+    // This MAX_RECENT_CHATS is now global, not per-backend. This is a design choice.
+    if (recentChats.length > MAX_RECENT_CHATS * 2) { // Allow more to store for all backends
+        recentChats.pop();
+    }
+    localStorage.setItem(RECENT_CHATS_KEY, JSON.stringify(recentChats));
+    loadRecentChats();
+}
+
 function showSectionWithLogic(sectionName) {
     showSection(sectionName);
     if (sectionName === 'chatSection') {
@@ -34,6 +105,7 @@ function showSectionWithLogic(sectionName) {
         if (appState.chatListStatus[appState.activeBackend] === 'unloaded') {
             handleLoadChats();
         }
+        loadRecentChats();
     } else if (sectionName === 'botManagementSection') {
         if (!appState.activeBackend) {
             showSectionWithLogic('loginSection');
@@ -59,69 +131,6 @@ window.showSection = showSectionWithLogic;
 
 
 document.addEventListener('DOMContentLoaded', () => {
-    const RECENT_CHATS_KEY = 'chat_analyzer_recent_chats';
-    const MAX_RECENT_CHATS = 10;
-
-    function loadRecentChats() {
-        const recentChats = JSON.parse(localStorage.getItem(RECENT_CHATS_KEY)) || [];
-        const recentChatsContainer = document.getElementById('recentChats');
-        const recentChatsList = document.getElementById('recentChatsList');
-
-        if (recentChats.length > 0) {
-            recentChatsList.innerHTML = '';
-            recentChats.forEach(session => {
-                const li = document.createElement('li');
-                li.innerHTML = `
-                    <a href="#" class="recent-chat-name">${session.chat.label}</a>
-                    <button class="go-button">Go</button>
-                `;
-                
-                li.querySelector('.recent-chat-name').addEventListener('click', (e) => {
-                    e.preventDefault();
-                    restoreSession(session);
-                });
-
-                li.querySelector('.go-button').addEventListener('click', (e) => {
-                    e.preventDefault();
-                    restoreSession(session);
-                    startChatButton.click();
-                });
-
-                recentChatsList.appendChild(li);
-            });
-            recentChatsContainer.style.display = 'block';
-        }
-    }
-
-    function restoreSession(session) {
-        const choices = getChoicesInstance();
-        if (choices) {
-            choices.setChoiceByValue(session.chat.value);
-        }
-        modelSelect.value = session.model;
-        const datePickerEl = document.getElementById('dateRangePicker');
-        if (datePickerEl && datePickerEl._flatpickr) {
-            const datePicker = datePickerEl._flatpickr;
-            datePicker.setDate([session.startDate, session.endDate], false);
-        }
-        cacheChatsToggle.checked = session.caching;
-        imageProcessingToggle.checked = session.imageProcessing.enabled;
-        maxImageSize.value = session.imageProcessing.maxSizeMb;
-        toggleQuestionCheckbox.checked = !!session.question;
-        initialQuestionGroup.style.display = session.question ? 'block' : 'none';
-        initialQuestion.value = session.question || '';
-    }
-
-    function addChatToRecents(session) {
-        let recentChats = JSON.parse(localStorage.getItem(RECENT_CHATS_KEY)) || [];
-        recentChats = recentChats.filter(s => s.chat.value !== session.chat.value);
-        recentChats.unshift(session);
-        if (recentChats.length > MAX_RECENT_CHATS) {
-            recentChats.pop();
-        }
-        localStorage.setItem(RECENT_CHATS_KEY, JSON.stringify(recentChats));
-        loadRecentChats();
-    }
 
     function closeMobileMenu() {
         if (mainContainer.classList.contains('mobile-menu-open')) {
@@ -174,6 +183,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (selectedChat && selectedChat.value) {
                 const sessionSnapshot = {
+                    backend: appState.activeBackend,
                     chat: {
                         value: selectedChat.value,
                         label: selectedChat.label
@@ -392,7 +402,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     checkSessionOnLoad();
-    loadRecentChats();
 
     if (manageBotsButton) manageBotsButton.addEventListener('click', () => {
         showSectionWithLogic('botManagementSection');
