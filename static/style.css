@@ -418,7 +418,14 @@ input:checked + .slider:before {
     gap: 0.5rem;
 }
 
+#recentChatsList li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 #recentChatsList a {
+    flex-grow: 1;
     display: block;
     padding: 0.75rem;
     background-color: var(--background-color);
@@ -427,6 +434,14 @@ input:checked + .slider:before {
     text-decoration: none;
     color: var(--text-color);
     transition: background-color 0.2s;
+}
+
+button.go-button {
+    padding: 0.5rem 1rem;
+    width: auto;
+    font-size: 0.9rem;
+    text-transform: none;
+    letter-spacing: 0;
 }
 
 #recentChatsList a:hover {

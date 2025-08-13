@@ -69,31 +69,53 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (recentChats.length > 0) {
             recentChatsList.innerHTML = '';
-            recentChats.forEach(chat => {
+            recentChats.forEach(session => {
                 const li = document.createElement('li');
-                const a = document.createElement('a');
-                a.href = '#';
-                a.textContent = chat.label;
-                a.dataset.chatId = chat.value;
-                a.addEventListener('click', (e) => {
+                li.innerHTML = `
+                    <a href="#" class="recent-chat-name">${session.chat.label}</a>
+                    <button class="go-button">Go</button>
+                `;
+                
+                li.querySelector('.recent-chat-name').addEventListener('click', (e) => {
                     e.preventDefault();
-                    const choices = getChoicesInstance();
-                    if (choices) {
-                        choices.setChoiceByValue(chat.value);
-                    }
+                    restoreSession(session);
                 });
-                li.appendChild(a);
+
+                li.querySelector('.go-button').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    restoreSession(session);
+                    startChatButton.click();
+                });
+
                 recentChatsList.appendChild(li);
             });
             recentChatsContainer.style.display = 'block';
         }
     }
 
-    function addChatToRecents(chat) {
+    function restoreSession(session) {
+        const choices = getChoicesInstance();
+        if (choices) {
+            choices.setChoiceByValue(session.chat.value);
+        }
+        modelSelect.value = session.model;
+        const datePickerEl = document.getElementById('dateRangePicker');
+        if (datePickerEl && datePickerEl._flatpickr) {
+            const datePicker = datePickerEl._flatpickr;
+            datePicker.setDate([session.startDate, session.endDate], false);
+        }
+        cacheChatsToggle.checked = session.caching;
+        imageProcessingToggle.checked = session.imageProcessing.enabled;
+        maxImageSize.value = session.imageProcessing.maxSizeMb;
+        toggleQuestionCheckbox.checked = !!session.question;
+        initialQuestionGroup.style.display = session.question ? 'block' : 'none';
+        initialQuestion.value = session.question || '';
+    }
+
+    function addChatToRecents(session) {
         let recentChats = JSON.parse(localStorage.getItem(RECENT_CHATS_KEY)) || [];
-        // Remove if already exists to avoid duplicates and move to top
-        recentChats = recentChats.filter(c => c.value !== chat.value);
-        recentChats.unshift(chat);
+        recentChats = recentChats.filter(s => s.chat.value !== session.chat.value);
+        recentChats.unshift(session);
         if (recentChats.length > MAX_RECENT_CHATS) {
             recentChats.pop();
         }
@@ -110,8 +132,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (startChatButton) {
         startChatButton.addEventListener('click', () => {
-            const datePicker = document.getElementById('dateRangePicker');
-            if (!datePicker._flatpickr || datePicker._flatpickr.selectedDates.length !== 2) {
+            // Defensive check to prevent state corruption
+            if (!Array.isArray(appState.conversation)) {
+                appState.conversation = [];
+            }
+            const datePickerEl = document.getElementById('dateRangePicker');
+            const datePickerInstance = datePickerEl ? datePickerEl._flatpickr : null;
+
+            if (!datePickerInstance) {
+                dateError.textContent = 'Date picker not initialized.';
+                return;
+            }
+            if (!datePickerInstance.selectedDates) {
+                dateError.textContent = 'Date selection not available.';
+                return;
+            }
+            if (datePickerInstance.selectedDates.length !== 2) {
                 dateError.textContent = 'Please select a valid date range.';
                 return;
             }
@@ -133,9 +169,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 chatWindow.appendChild(userMessageElem);
                 initialQuestion.value = '';
             }
-            const selectedChat = getChoicesInstance().getValue();
-            if (selectedChat) {
-                addChatToRecents(selectedChat);
+            const choices = getChoicesInstance();
+            const selectedChat = choices ? choices.getValue() : null;
+
+            if (selectedChat && selectedChat.value) {
+                const sessionSnapshot = {
+                    chat: {
+                        value: selectedChat.value,
+                        label: selectedChat.label
+                    },
+                    model: modelSelect.value,
+                    startDate: datePickerInstance.selectedDates[0] ? datePickerInstance.selectedDates[0].toISOString() : null,
+                    endDate: datePickerInstance.selectedDates[1] ? datePickerInstance.selectedDates[1].toISOString() : null,
+                    caching: cacheChatsToggle.checked,
+                    imageProcessing: {
+                        enabled: imageProcessingToggle.checked,
+                        maxSizeMb: maxImageSize.value
+                    },
+                    question: initialQuestion.value.trim()
+                };
+                addChatToRecents(sessionSnapshot);
             }
 
             const chatColumn = document.getElementById('conversationalChatSection');
