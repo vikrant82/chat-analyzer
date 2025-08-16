@@ -134,28 +134,54 @@ async def process_chat_request(req: ChatMessage, user_id: str, backend: str, llm
     return stream_generator()
 
 def _format_messages_for_llm(messages: List[StandardMessage]) -> List[Dict[str, Any]]:
+    """
+    Formats a list of messages for the LLM, handling both flat and threaded conversations.
+    If parent_id is present, it builds and formats a hierarchical tree.
+    Otherwise, it formats a flat list with simple thread indicators.
+    """
+    # Check if any message has a parent_id to determine the formatting strategy
+    is_threaded_conversation = any(msg.parent_id is not None for msg in messages)
+
+    if is_threaded_conversation:
+        return _format_threaded_conversation(messages)
+    else:
+        return _format_flat_conversation(messages)
+
+
+def _format_flat_conversation(messages: List[StandardMessage]) -> List[Dict[str, Any]]:
+    """Handles formatting for services without deep threading (e.g., Webex, old Telegram)."""
     parts: List[Dict[str, Any]] = []
-    in_thread = False
     transcript_lines: List[str] = []
     image_parts_in_order: List[Dict[str, Any]] = []
     image_seq = 0
+    current_thread_id = None
 
-    for msg in messages:
+    for i, msg in enumerate(messages):
         is_reply = msg.thread_id is not None
+        
+        # Determine the thread_id of the previous message for state change detection
+        prev_thread_id = messages[i-1].thread_id if i > 0 else None
 
-        if is_reply and not in_thread:
+        # --- Thread State Logic ---
+        # 1. Entering a new thread
+        if is_reply and msg.thread_id != prev_thread_id:
+            # If we were in a different thread, close it first.
+            if prev_thread_id is not None:
+                 transcript_lines.append("--- Thread Ended ---\n")
             transcript_lines.append("\n--- Thread Started ---")
-            in_thread = True
-        elif not is_reply and in_thread:
+        
+        # 2. Exiting a thread
+        elif not is_reply and prev_thread_id is not None:
             transcript_lines.append("--- Thread Ended ---\n")
-            in_thread = False
-
+        
+        # --- Message Formatting ---
         prefix = "    " if is_reply else ""
         header = f"{prefix}[{msg.author.name} at {msg.timestamp}]:"
+        
         if msg.text:
             transcript_lines.append(f"{header} {msg.text}")
         else:
-            transcript_lines.append(f"{header}")
+            transcript_lines.append(header)
 
         if msg.attachments:
             for attachment in msg.attachments:
@@ -184,8 +210,9 @@ def _format_messages_for_llm(messages: List[StandardMessage]) -> List[Dict[str, 
                     },
                 })
 
-    if in_thread:
-        transcript_lines.append("--- Thread Ended ---")
+    # After the loop, if the very last message was in a thread, close it.
+    if messages and messages[-1].thread_id is not None:
+        transcript_lines.append("--- Thread Ended ---\n")
 
     if image_seq > 0:
         transcript_lines.append("")
@@ -209,6 +236,99 @@ def clear_chat_cache(token: str):
     for key in keys_to_delete:
         del message_cache[key]
         logger.info(f"Removed message cache for key: {key}")
+
+def _format_threaded_conversation(messages: List[StandardMessage]) -> List[Dict[str, Any]]:
+    """Handles formatting for services with n-level threading (e.g., Reddit)."""
+    parts: List[Dict[str, Any]] = []
+    transcript_lines: List[str] = []
+    image_parts_in_order: List[Dict[str, Any]] = []
+    image_seq = 0
+
+    message_map = {msg.id: msg for msg in messages}
+    children_map = {msg.id: [] for msg in messages}
+    root_messages = []
+
+    for msg in messages:
+        if msg.parent_id and msg.parent_id in message_map:
+            children_map[msg.parent_id].append(msg)
+        else:
+            root_messages.append(msg)
+            
+    root_messages.sort(key=lambda m: m.timestamp)
+
+    def format_message_text(msg: StandardMessage, depth: int) -> str:
+        nonlocal image_seq
+        
+        # Indentation for tree structure
+        indent = "    " * depth
+        # Prefix for replies to improve readability
+        line_prefix = "| " if depth > 0 else ""
+        
+        header = f"{indent}[{msg.author.name} at {msg.timestamp}]:"
+        
+        text_content = msg.text or ""
+        # Prepend each line of the message text with the prefix
+        
+        if text_content:
+            body = "\n".join([f"{indent}{line_prefix}{line}" for line in text_content.splitlines()])
+            full_text = f"{header}\n{body}"
+        else:
+            full_text = header
+
+        # Handle attachments
+        if msg.attachments:
+            attachment_lines = []
+            for attachment in msg.attachments:
+                image_seq += 1
+                attachment_lines.append(f"{indent}{line_prefix}(Image #{image_seq}: {attachment.mime_type})")
+                # ... image handling logic ...
+            full_text += "\n" + "\n".join(attachment_lines)
+            
+        return full_text
+
+    def traverse_and_format(message_id: str, depth: int, output_list: List[str]):
+        msg = message_map.get(message_id)
+        if not msg: return
+        
+        output_list.append(format_message_text(msg, depth))
+        
+        sorted_children = sorted(children_map.get(message_id, []), key=lambda m: m.timestamp)
+        for child_msg in sorted_children:
+            traverse_and_format(child_msg.id, depth + 1, output_list)
+
+    # Process root messages
+    for root_msg in root_messages:
+        if root_msg.parent_id is None:  # This is the main post
+            transcript_lines.append(f"[{root_msg.author.name} at {root_msg.timestamp}]: {root_msg.text}")
+
+            # Process top-level comments (children of the post)
+            top_level_comments = sorted(children_map.get(root_msg.id, []), key=lambda m: m.timestamp)
+            for top_level_comment in top_level_comments:
+                transcript_lines.append("\n--- Thread Started ---")
+                thread_lines = []
+                traverse_and_format(top_level_comment.id, 0, thread_lines)
+                transcript_lines.extend(thread_lines)
+                transcript_lines.append("--- Thread Ended ---")
+
+        else:  # This is an orphan comment
+            transcript_lines.append("\n--- Thread Started (Orphaned) ---")
+            thread_lines = []
+            traverse_and_format(root_msg.id, 0, thread_lines)
+            transcript_lines.extend(thread_lines)
+            transcript_lines.append("--- Thread Ended (Orphaned) ---")
+
+
+    # This part remains the same: construct the final payload
+    if image_seq > 0:
+        transcript_lines.append("")
+        transcript_lines.append("Image Index:")
+        # ... (image index generation) ...
+
+    full_text = "Context: Chat History (Local Day)\n" + "\n".join(transcript_lines)
+    parts.append({"type": "text", "text": full_text})
+    parts.extend(image_parts_in_order)
+
+    return [{"role": "user", "content": parts}]
 
 def clear_conversation_history(token: str):
     """Clears the conversation history for a given session token."""

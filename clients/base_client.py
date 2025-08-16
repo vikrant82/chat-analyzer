@@ -22,6 +22,7 @@ class Message(BaseModel):
     author: User
     timestamp: str # ISO 8601 format
     thread_id: Optional[str] = None
+    parent_id: Optional[str] = None
     attachments: Optional[List[Attachment]] = None
 
 # --- The Abstract Base Class ---

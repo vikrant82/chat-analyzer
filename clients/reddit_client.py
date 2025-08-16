@@ -199,7 +199,7 @@ class RedditClient(ChatClient):
             print(f"Error replacing 'more' comments: {e}")
 
         # Use a recursive helper function to traverse the comment tree
-        def _process_comment_tree(comment_list, depth=0):
+        def _process_comment_tree(comment_list, parent_id):
             for comment in comment_list:
                 if isinstance(comment, MoreComments):
                     continue
@@ -208,23 +208,20 @@ class RedditClient(ChatClient):
                 comment_author_id = getattr(comment_author, "id", "0") if comment_author else "0"
                 comment_author_name = getattr(comment_author, "name", "[deleted]") if comment_author else "[deleted]"
 
-                # Pre-format the text with indentation
-                indent = "    " * depth
-                text = f"{indent}{comment.body}"
-
                 messages.append(Message(
                     id=comment.id,
-                    text=text,
+                    text=comment.body,
                     author=User(id=comment_author_id, name=comment_author_name),
                     timestamp=datetime.fromtimestamp(comment.created_utc, tz=timezone.utc).isoformat(),
                     thread_id=submission.id, # All comments belong to the same submission thread
+                    parent_id=parent_id,
                 ))
-                
+
                 # Recurse through replies
                 if hasattr(comment, 'replies') and comment.replies:
-                    _process_comment_tree(comment.replies, depth + 1)
-        
-        _process_comment_tree(submission.comments)
+                    _process_comment_tree(comment.replies, parent_id=comment.id)
+
+        _process_comment_tree(submission.comments, parent_id=submission.id)
 
         return messages
 
