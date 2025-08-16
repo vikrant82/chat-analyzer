@@ -9,10 +9,12 @@ import {
 } from './ui.js';
 
 export function handleBackendChange() {
-    if (backendSelect && telegramLoginForm && webexLoginContainer) {
+    const redditLoginContainer = document.getElementById('redditLoginContainer');
+    if (backendSelect && telegramLoginForm && webexLoginContainer && redditLoginContainer) {
         const selectedBackend = backendSelect.value;
         telegramLoginForm.style.display = selectedBackend === 'telegram' ? 'block' : 'none';
         webexLoginContainer.style.display = selectedBackend === 'webex' ? 'block' : 'none';
+        redditLoginContainer.style.display = selectedBackend === 'reddit' ? 'block' : 'none';
     }
     // Also handle the main backend selector
     if(backendSelectMain) {
@@ -66,19 +68,20 @@ export async function handleLogin() {
         } catch (error) { 
             loginError.textContent = error.message || 'Login failed.';
         }
-    } else {
-        setLoadingState(webexLoginButton, true, 'Redirecting...');
+    } else { // Handles Webex and Reddit
+        const button = selectedBackend === 'webex' ? webexLoginButton : document.getElementById('redditLoginButton');
+        setLoadingState(button, true, 'Redirecting...');
         try {
-            const data = await makeApiRequest(url, { method: 'POST' }, config.timeouts.login, webexLoginButton, 'login');
+            const data = await makeApiRequest(url, { method: 'POST' }, config.timeouts.login, button, 'login');
             if (data.url) {
                 window.location.href = data.url;
             } else {
                 loginError.textContent = 'Could not get login redirect URL.';
-                setLoadingState(webexLoginButton, false);
+                setLoadingState(button, false);
             }
         } catch (error) {
             loginError.textContent = error.message || 'Login failed.';
-            setLoadingState(webexLoginButton, false);
+            setLoadingState(button, false);
         }
     }
 }
@@ -125,10 +128,18 @@ export async function handleFullLogout() {
     }
     appState.conversation = [];
 
-    const otherBackend = backend === 'telegram' ? 'webex' : 'telegram';
-    if (localStorage.getItem(getSessionTokenKey(otherBackend))) {
-        switchService(otherBackend);
-    } else {
+    const availableBackends = ['telegram', 'webex', 'reddit'];
+    const remainingBackends = availableBackends.filter(b => b !== backend);
+    let switched = false;
+    for (const nextBackend of remainingBackends) {
+        if (localStorage.getItem(getSessionTokenKey(nextBackend))) {
+            switchService(nextBackend);
+            switched = true;
+            break;
+        }
+    }
+
+    if (!switched) {
         localStorage.removeItem(ACTIVE_BACKEND_KEY);
         appState.activeBackend = null;
         window.showSection('loginSection');
@@ -158,6 +169,7 @@ export async function checkSessionOnLoad() {
     
     appState.sessionTokens.telegram = localStorage.getItem(getSessionTokenKey('telegram'));
     appState.sessionTokens.webex = localStorage.getItem(getSessionTokenKey('webex'));
+    appState.sessionTokens.reddit = localStorage.getItem(getSessionTokenKey('reddit'));
     const lastBackend = localStorage.getItem(ACTIVE_BACKEND_KEY);
 
     if (lastBackend && appState.sessionTokens[lastBackend]) {
@@ -170,10 +182,14 @@ export async function checkSessionOnLoad() {
             console.error(`Session check failed for ${lastBackend}:`, error);
             localStorage.removeItem(getSessionTokenKey(lastBackend));
             appState.sessionTokens[lastBackend] = null;
-            const otherBackend = lastBackend === 'telegram' ? 'webex' : 'telegram';
-            if (appState.sessionTokens[otherBackend]) {
-                switchService(otherBackend);
-                return;
+            
+            const availableBackends = ['telegram', 'webex', 'reddit'];
+            const remainingBackends = availableBackends.filter(b => b !== lastBackend);
+            for (const nextBackend of remainingBackends) {
+                if (appState.sessionTokens[nextBackend]) {
+                    switchService(nextBackend);
+                    return;
+                }
             }
         }
     }

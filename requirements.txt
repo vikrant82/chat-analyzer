@@ -8,3 +8,4 @@ pydantic
 requests
 fpdf2
 tzdata
+asyncpraw

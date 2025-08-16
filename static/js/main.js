@@ -246,7 +246,8 @@ document.addEventListener('DOMContentLoaded', () => {
         clearChatButton.addEventListener('click', async () => {
             if (appState.sessionTokens[appState.activeBackend]) {
                 try {
-                    await makeApiRequest('/api/clear-session', { method: 'POST' }, config.timeouts.logout, clearChatButton, 'session');
+                    const url = `/api/clear-session?backend=${appState.activeBackend}`;
+                    await makeApiRequest(url, { method: 'POST' }, config.timeouts.logout, clearChatButton, 'session');
                 } catch (error) {
                     console.error("Failed to clear session on server:", error);
                 }
@@ -336,6 +337,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (backendSelectMain) backendSelectMain.addEventListener('change', handleBackendChange);
     if (loginSubmitButton) loginSubmitButton.addEventListener('click', handleLogin);
     if (webexLoginButton) webexLoginButton.addEventListener('click', handleLogin);
+    const redditLoginButton = document.getElementById('redditLoginButton');
+    if (redditLoginButton) redditLoginButton.addEventListener('click', handleLogin);
     if (verifyButton) verifyButton.addEventListener('click', handleVerify);
     if (logoutButton) logoutButton.addEventListener('click', handleFullLogout);
     if (refreshChatsLink) {

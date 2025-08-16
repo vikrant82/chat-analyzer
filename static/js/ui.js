@@ -121,7 +121,21 @@ export function updateStartChatButtonState() {
     if (!startChatButton) return;
     const datePicker = document.getElementById('dateRangePicker');
     const validDateSelected = datePicker && datePicker._flatpickr && datePicker._flatpickr.selectedDates.length === 2;
-    const validChatSelected = choicesInstance && choicesInstance.getValue(true) != null && choicesInstance.getValue(true) !== "";
+    
+    let validChatSelected = false;
+    if (appState.activeBackend === 'reddit') {
+        const mainSelection = choicesInstance ? choicesInstance.getValue(true) : null;
+        if (mainSelection && !mainSelection.startsWith('sub_')) {
+            validChatSelected = true; // A post was selected directly
+        } else if (mainSelection && mainSelection.startsWith('sub_')) {
+            if (appState.postChoicesInstance && appState.postChoicesInstance.getValue(true)) {
+                validChatSelected = true; // A subreddit and a post were selected
+            }
+        }
+    } else {
+        validChatSelected = choicesInstance && choicesInstance.getValue(true) != null && choicesInstance.getValue(true) !== "";
+    }
+
     const validModelSelected = modelSelect && modelSelect.value && !modelSelect.options[modelSelect.selectedIndex]?.disabled;
     
     const coreRequirementsMet = appState.chatListStatus[appState.activeBackend] === 'loaded' && appState.modelsLoaded && validChatSelected && validModelSelected && validDateSelected;

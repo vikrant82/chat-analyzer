@@ -5,14 +5,14 @@ This guide explains how to use the Chat Analyzer application, from logging in to
 ## Logging In
 
 1.  Upon opening the app, you will see the login screen.
-2.  Select either **Telegram** or **Webex** from the "Chat Service" dropdown.
+2.  Select **Telegram**, **Webex**, or **Reddit** from the "Chat Service" dropdown.
 3.  **For Telegram**:
     -   Enter your full phone number, including the country code (e.g., `+14155552671`).
     -   Click "Send Code".
     -   Enter the code you receive in your Telegram app. If you have 2-Factor Authentication enabled, you will also be prompted for your password.
-4.  **For Webex**:
-    -   Click "Login with Webex".
-    -   You will be redirected to the official Webex login page. Sign in with your credentials.
+4.  **For Webex & Reddit**:
+    -   Click the "Login with..." button.
+    -   You will be redirected to the official service login page. Sign in with your credentials.
     -   Grant the application permission to access your account.
     -   You will be automatically redirected back to the app, now logged in.
 
@@ -20,7 +20,7 @@ This guide explains how to use the Chat Analyzer application, from logging in to
 
 Once logged in, you will be on the "Analyze Chats" screen.
 
-1.  **Select a Chat**: Your chats/rooms will be listed in the searchable dropdown. If the list is empty, click the **"Refresh List"** link to load them.
+1.  **Select a Chat**: Your chats, rooms, or posts will be listed in the searchable dropdown. If the list is empty, click the **"Refresh List"** link to load them. See the platform-specific notes below for details.
 2.  **Select an AI Model**: Choose your preferred AI model from the list. A sensible default will be pre-selected if configured.
 3.  **Select a Date Range**: Use the date picker to choose the start and end dates. You can also select from pre-defined ranges like "Last 2 Days", "Last Week", etc. Date ranges are interpreted using your browser’s IANA timezone (Local-Day semantics).
 4.  **Configure Caching**: Use the "Enable caching for faster analysis" checkbox to enable or disable caching for the current analysis.
@@ -44,8 +44,14 @@ Below the main controls, you will find a "Recent Chats" list. This feature helps
 -   **Restore Session**: Clicking on a chat name will instantly restore all the settings from that session, including the AI model, date range, and any specific question you asked. You can then modify these settings or click "Start Chat".
 -   **Quick Start**: Clicking the **"Go"** button next to a chat name will restore the session settings *and* immediately start the analysis, taking you directly to the chat window.
 
-### About Threading (Why this matters for Telegram)
-Telegram conversations often interleave replies across multiple topics, making it hard to follow context. The analyzer reconstructs Telegram reply chains, assigns a deterministic thread root, and presents replies under the correct root—resulting in coherent threads for summaries and Q&A. This dramatically reduces confusion when analyzing busy Telegram groups.
+### Platform-Specific Chat Selection & Threading
+
+-   **Telegram & Webex**: The dropdown will show a list of your chats and rooms. The analyzer will automatically reconstruct reply chains to provide accurate conversational context to the AI.
+-   **Reddit**: The dropdown for Reddit is a "hybrid" list containing:
+    -   **Subscribed Subreddits**: Selecting a subreddit will reveal a second dropdown where you can choose one of its top "hot" posts.
+    -   **Popular Posts & My Posts**: You can also select a post directly from these groups.
+    
+    To start an analysis, you must always select a specific **post**. The analyzer will then fetch that post and its entire comment tree, correctly indenting all nested replies to preserve the thread structure.
 
 ## Using the Bots
 
@@ -69,5 +75,5 @@ After registering a bot via the **"Manage Bots"** UI, you can interact with it d
 
 ## Switching Services & Logging Out
 
--   **Switching**: You can be logged into both Telegram and Webex simultaneously. Use the **"Switch Service"** button to toggle between them.
--   **Logout**: Clicking **"Logout"** will sign you out of the currently active service. If you are logged into the other service, the app will switch to it; otherwise, it will return to the main login screen.
+-   **Switching**: You can be logged into Telegram, Webex, and Reddit simultaneously. Use the **"Switch Service"** button to toggle between them.
+-   **Logout**: Clicking **"Logout"** will sign you out of the currently active service. If you are logged into any other service, the app will switch to one of them; otherwise, it will return to the main login screen.

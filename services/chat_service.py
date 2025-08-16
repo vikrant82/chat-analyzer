@@ -57,7 +57,7 @@ async def _normalize_stream(result):
     yield str(obj)
 
 async def process_chat_request(req: ChatMessage, user_id: str, backend: str, llm_manager: LLMManager):
-    token = auth_service.get_token_for_user(user_id)
+    token = auth_service.get_token_for_user(user_id, backend)
     if not token:
         raise HTTPException(status_code=401, detail="Could not find session token for user.")
 

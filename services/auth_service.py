@@ -42,10 +42,10 @@ def get_session_data(token: str) -> Optional[Dict[str, str]]:
     """Gets session data for a given token."""
     return session_tokens.get(token)
 
-def get_token_for_user(user_id: str) -> Optional[str]:
-    """Gets a token for a given user_id."""
+def get_token_for_user(user_id: str, backend: str) -> Optional[str]:
+    """Gets a token for a given user_id and backend."""
     for token, data in session_tokens.items():
-        if data.get("user_id") == user_id:
+        if data.get("user_id") == user_id and data.get("backend") == backend:
             return token
     return None
 

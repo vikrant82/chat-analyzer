@@ -1,22 +1,23 @@
 # Multi-Backend AI Chat Analyzer
 
-This web application allows users to connect to their personal chat accounts (currently supporting **Telegram** and **Webex**) to generate AI-powered summaries or ask specific questions about their chat history within a selected date range.
+This web application allows users to connect to their personal chat accounts (currently supporting **Telegram**, **Webex**, and **Reddit**) to generate AI-powered summaries or ask specific questions about their chat history within a selected date range.
 
 The application features a robust caching system to ensure fast, repeated analysis and a flexible AI backend that can connect to multiple LLM providers.
 
 ## Features
 
--   **Multi-Service Connectivity**: Securely log in to either Telegram or Webex accounts.
--   **Multi-Session Support**: Stay logged into both Telegram and Webex simultaneously and seamlessly switch between them without needing to re-authenticate each time.
+-   **Multi-Service Connectivity**: Securely log in to Telegram, Webex, and Reddit accounts.
+-   **Multi-Session Support**: Stay logged into all services simultaneously and seamlessly switch between them without needing to re-authenticate each time.
 -   **Unified Chat Experience**:
     -   Engage in a continuous conversation with the AI about your chat data.
     -   Ask follow-up questions without re-submitting the initial query.
     -   The AI maintains context throughout the conversation.
     -   **Stop Generation**: Cancel an in-progress AI response at any time.
 -   **AI-Powered Analysis & Bot Integration**:
-    -   **Threaded Conversation Support (Webex + Telegram)**: Preserves native threading context end-to-end.
-        - Webex: Groups by parent/threadId as before.
-        - Telegram: Reconstructs reply-quote chains to deterministically resolve a thread root, keeps roots as top-level, and orders replies under the correct root. This eliminates the common confusion of interleaved Telegram replies by presenting coherent threads to the LLM and in downloads.
+    -   **Threaded Conversation Support (Webex, Telegram, Reddit)**: Preserves native threading context end-to-end.
+        - Webex: Groups by parent/threadId.
+        - Telegram: Reconstructs reply-quote chains to deterministically resolve a thread root.
+        - Reddit: Correctly represents deeply nested comment trees with proper indentation.
     -   **Configurable Image Analysis (All Providers)**: Globally enable/disable image processing from the UI and set maximum file sizes.
     -   **Webex & Telegram Bot Support**: Register bots to invoke the analyzer directly from any chat space.
     -   **Real-time Streaming**: View AI responses as they are generated, word-by-word.
@@ -44,6 +45,7 @@ For detailed information on how to set up, configure, and use the application, p
 -   **[User Guide](./docs/user_guide.md)**: A complete walkthrough of the application's features.
 -   **[Webex Bot Guide](./docs/webex_bot_guide.md)**: How to create and use the Webex bot.
 -   **[Telegram Bot Guide](./docs/telegram_bot_guide.md)**: How to create and use the Telegram bot.
+-   **[Reddit Guide](./docs/reddit_guide.md)**: How to connect and use the Reddit integration.
 -   **[Technical Overview](./docs/overview.md)**: A high-level look at the project's architecture.
 
 ## Project Structure

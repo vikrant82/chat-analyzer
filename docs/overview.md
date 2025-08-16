@@ -1,7 +1,7 @@
 # Technical Overview: Chat Analyzer
 
 ## 1. High-Level Summary
-- **Purpose:** A web application for AI-powered analysis of chat histories from multiple platforms (Telegram, Webex). Users log in, select a chat and date range, and receive summaries or ask questions. It also supports optional bot integrations for invoking analysis directly from chat clients.
+- **Purpose:** A web application for AI-powered analysis of chat histories from multiple platforms (Telegram, Webex, and Reddit). Users log in, select a chat/post and date range, and receive summaries or ask questions. It also supports optional bot integrations for invoking analysis directly from chat clients.
 - **Users:** End-users seeking to understand chat conversations and developers looking for a reference implementation.
 - **Core Functionality:**
     - **Web & Bot Interaction:** Main interface is a web UI. Optional bots for Webex and Telegram can be registered to trigger analysis.
@@ -13,12 +13,12 @@
 ## 2. Technology Stack
 - **Languages:** Python
 - **Frameworks:** FastAPI
-- **Key Libraries:** `telethon` (Telegram user client), `httpx` (Webex/Bot clients), `fastapi`, `uvicorn`. See [`requirements.txt`](./requirements.txt) for full list.
+- **Key Libraries:** `telethon` (Telegram), `asyncpraw` (Reddit), `httpx` (Webex/Bots), `fastapi`, `uvicorn`. See [`requirements.txt`](./requirements.txt) for full list.
 - **Database:** None. State is managed via session files and a JSON configuration file.
 
 ## 3. Directory Structure Map
 - `ai/`: System prompts, LLM client factories, and OpenAI-compatible streaming logic.
-- `clients/`: Platform-specific clients (Telegram, Webex) for fetching chat data.
+- `clients/`: Platform-specific clients (Telegram, Webex, Reddit) for fetching chat data.
 - `llm/`: Manages LLM provider clients (e.g., Google AI, LM Studio).
 - `routers/`: FastAPI API endpoint definitions.
 - `services/`: Core business logic (auth, chat processing, downloads).
@@ -45,8 +45,9 @@
     - `download_service.py`: Creates downloadable files in various formats.
 - **`clients/`**:
     - `factory.py`: Returns the correct client instance based on the selected backend (`telegram` or `webex`).
-    - `telegram_client.py`: Uses Telethon to read chat history, reconstructs threads from reply chains, and handles caching.
-    - `webex_client.py`: Uses native thread IDs and handles caching with timezone awareness.
+    - `telegram_client.py`: Uses Telethon to read chat history and reconstructs threads from reply chains.
+    - `webex_client.py`: Uses native thread IDs for simple threading.
+    - `reddit_client.py`: Fetches posts and comment trees, handling deeply nested threads by pre-formatting the text with indentation.
 - **`llm/llm_client.py`**: The `LLMManager` initializes all configured LLM providers (Google AI, LM Studio, etc.), discovers their available models, and provides a unified `call_conversational` method for services to use.
 - **`bot_manager.py`**: Provides methods to read, add, and remove bot configurations from the `config.json` file, ensuring changes are persisted.
 - **Caching Architecture:**
@@ -55,7 +56,7 @@
 
 ## 6. API & External Interactions
 - **Authentication:**
-    - `POST /api/login`: Initiates login (phone code for Telegram, OAuth for Webex).
+    - `POST /api/login`: Initiates login (phone code for Telegram, OAuth for Webex and Reddit).
     - `GET /api/session-status`: Checks if a user has active sessions.
     - `POST /api/logout`: Logs out the current user.
 - **Chat & Data:**
@@ -73,7 +74,7 @@
 
 ## 7. Configuration & Environment
 - **`config.json`**:
-    - `telegram`, `webex`: API credentials and settings.
+    - `telegram`, `webex`, `reddit`: API credentials and settings.
     - `google_ai`, `lm_studio`: LLM provider URLs and API keys.
     - `bots`: A list where new bot configurations are stored.
 - **Environment Variables:** `HOST`, `PORT`, `RELOAD` for server configuration.

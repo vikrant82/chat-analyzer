@@ -8,9 +8,63 @@ import {
 } from './ui.js';
 import { handleFullLogout } from './auth.js';
 
+function initializeRedditPostChoices() {
+    const postSelect = document.getElementById('redditPostSelect');
+    if (postSelect && !appState.postChoicesInstance) {
+        appState.postChoicesInstance = new Choices(postSelect, {
+            searchEnabled: true,
+            itemSelectText: 'Select',
+            shouldSort: false,
+        });
+    }
+}
+
+async function handleRedditChatSelection(event) {
+    const redditPostSelectGroup = document.getElementById('redditPostSelectGroup');
+    if (appState.activeBackend !== 'reddit' || !event.detail.value.startsWith('sub_')) {
+        redditPostSelectGroup.style.display = 'none';
+        return;
+    }
+
+    const subreddit = event.detail.value.replace('sub_', '');
+    redditPostSelectGroup.style.display = 'block';
+    appState.postChoicesInstance.clearStore();
+    appState.postChoicesInstance.setChoices([{ value: '', label: 'Loading posts...', disabled: true }], 'value', 'label', true);
+
+    try {
+        const url = `/api/reddit/posts?subreddit=${subreddit}`;
+        const posts = await makeApiRequest(url, { method: 'GET' }, config.timeouts.loadChats, null, 'chats');
+        if (posts && posts.length > 0) {
+            const postOptions = posts.map(post => ({
+                value: post.id,
+                label: post.title
+            }));
+            appState.postChoicesInstance.setChoices(postOptions, 'value', 'label', false);
+        } else {
+            appState.postChoicesInstance.setChoices([{ value: '', label: 'No posts found.', disabled: true }], 'value', 'label', true);
+        }
+    } catch (error) {
+        document.getElementById('redditPostError').textContent = 'Failed to load posts.';
+    }
+}
+
 export async function handleLoadChats() {
     const backend = appState.activeBackend;
     const choicesInstance = getChoicesInstance();
+    const chatSelect = document.getElementById('chatSelect');
+    
+    // Remove previous listener to avoid duplicates
+    if (appState.redditListener) {
+        chatSelect.removeEventListener('change', appState.redditListener);
+    }
+
+    if (backend === 'reddit') {
+        initializeRedditPostChoices();
+        appState.redditListener = handleRedditChatSelection;
+        chatSelect.addEventListener('change', appState.redditListener);
+    } else {
+        document.getElementById('redditPostSelectGroup').style.display = 'none';
+    }
     if (!backend || !choicesInstance || !appState.sessionTokens[backend]) {
         if (chatLoadingError) chatLoadingError.textContent = "No active session.";
         return;
@@ -22,11 +76,37 @@ export async function handleLoadChats() {
     const populateChoices = (chats, source = 'new') => {
         choicesInstance.clearStore();
         if (chats && chats.length > 0) {
-            const chatOptions = chats.map(chat => ({
-                value: chat.id,
-                label: `${chat.title} (${chat.type})`
-            }));
-            choicesInstance.setChoices(chatOptions, 'value', 'label', false);
+            if (appState.activeBackend === 'reddit') {
+                const groupedChats = {
+                    'Subscribed': [],
+                    'Popular': [],
+                    'My Posts': []
+                };
+                chats.forEach(chat => {
+                    if (chat.title.startsWith('Subreddit:')) {
+                        groupedChats['Subscribed'].push({ value: chat.id, label: chat.title.replace('Subreddit: ', '') });
+                    } else if (chat.title.startsWith('Popular:')) {
+                        groupedChats['Popular'].push({ value: chat.id, label: chat.title.replace('Popular: ', '') });
+                    } else if (chat.title.startsWith('My Post:')) {
+                        groupedChats['My Posts'].push({ value: chat.id, label: chat.title.replace('My Post: ', '') });
+                    }
+                });
+
+                const choices = Object.keys(groupedChats).map(group => {
+                    return {
+                        label: group,
+                        choices: groupedChats[group]
+                    };
+                });
+                choicesInstance.setChoices(choices, 'value', 'label', false);
+
+            } else {
+                const chatOptions = chats.map(chat => ({
+                    value: chat.id,
+                    label: `${chat.title} (${chat.type})`
+                }));
+                choicesInstance.setChoices(chatOptions, 'value', 'label', false);
+            }
         } else {
             const label = source === 'cached' ? 'No chats found (cached)' : 'No chats found';
             choicesInstance.setChoices([{ value: '', label: label, disabled: true }], 'value', 'label', true);
@@ -153,8 +233,20 @@ export async function callChatApi(message = null) {
         }
         const [provider, modelName] = selectedModel.split('_PROVIDER_SEPARATOR_');
 
+        let chatId;
+        if (appState.activeBackend === 'reddit' && appState.postChoicesInstance) {
+            const mainSelection = getChoicesInstance().getValue(true);
+            if (mainSelection && !mainSelection.startsWith('sub_')) {
+                chatId = mainSelection;
+            } else {
+                chatId = appState.postChoicesInstance.getValue(true);
+            }
+        } else {
+            chatId = getChoicesInstance().getValue(true);
+        }
+
         const requestBody = {
-            chatId: getChoicesInstance().getValue(true),
+            chatId: chatId,
             provider: provider,
             modelName: modelName,
             startDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[0]),

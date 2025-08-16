@@ -25,6 +25,7 @@
                 <select id="backendSelect">
                     <option value="telegram">Telegram</option>
                     <option value="webex">Webex</option>
+                    <option value="reddit">Reddit</option>
                 </select>
             </div>
             <form id="telegramLoginForm">
@@ -36,6 +37,9 @@
             </form>
             <div id="webexLoginContainer" style="display: none;">
                 <button type="button" id="webexLoginButton">Login with Webex</button>
+            </div>
+            <div id="redditLoginContainer" style="display: none;">
+                <button type="button" id="redditLoginButton">Login with Reddit</button>
             </div>
             <div id="loginError" class="error-message"></div>
         </div>
@@ -77,6 +81,7 @@
                             <select id="backendSelect-main">
                                 <option value="telegram">Telegram</option>
                                 <option value="webex">Webex</option>
+                                <option value="reddit">Reddit</option>
                             </select>
                         </div>
                         <div class="form-group">
@@ -87,6 +92,11 @@
                             <select id="chatSelect" required></select>
                             <div id="chatLoadingError" class="error-message"></div>
                             <span id="lastUpdatedTime"></span>
+                        </div>
+                        <div id="redditPostSelectGroup" class="form-group" style="display: none;">
+                            <label for="redditPostSelect">Select a Post:</label>
+                            <select id="redditPostSelect"></select>
+                            <div id="redditPostError" class="error-message"></div>
                         </div>
                         <div class="form-group">
                             <label for="modelSelect">2. Select an AI Model:</label>

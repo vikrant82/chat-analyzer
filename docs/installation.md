@@ -102,6 +102,11 @@ Use this method if you have made changes to the source code or need a build for 
 -   **Google AI**:
     1.  Go to [Google AI Studio](https://aistudio.google.com/app/apikey).
     2.  Create and copy your API key.
+-   **Reddit**:
+    1.  Go to the [Reddit Apps](https://www.reddit.com/prefs/apps) page.
+    2.  Create a new "script" application.
+    3.  For the **Redirect URI**, you **must** enter: `http://localhost:8000/api/auth/callback/reddit`
+    4.  Copy the **Client ID** (under "personal use script") and the **Client Secret**.
 
 ### Create `config.json` File
 
@@ -145,6 +150,12 @@ In the root of the project, create a `config.json` file and populate it with you
   "lm_studio": {
     "url": "http://localhost:1234/v1/chat/completions",
     "default_model": "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF"
+  },
+  "reddit": {
+    "client_id": "YOUR_REDDIT_CLIENT_ID",
+    "client_secret": "YOUR_REDDIT_CLIENT_SECRET",
+    "redirect_uri": "http://localhost:8000/api/auth/callback/reddit",
+    "user_agent": "ChatAnalyzer/0.1 by YourUsername"
   }
 }
 ```

@@ -9,11 +9,12 @@ export const appState = {
     chatRequestController: null,
     chatLoadController: null,
     activeBackend: null, // 'telegram' or 'webex'
-    sessionTokens: { telegram: null, webex: null }, // The single source of truth for auth
+    sessionTokens: { telegram: null, webex: null, reddit: null }, // The single source of truth for auth
     activeSection: 'login',
     modelsLoaded: false,
-    chatListStatus: { telegram: 'unloaded', webex: 'unloaded' },
+    chatListStatus: { telegram: 'unloaded', webex: 'unloaded', reddit: 'unloaded' },
     conversation: [], // Holds the current chat history {role, content}
+    postChoicesInstance: null,
 };
 
 export const CACHE_CHATS_KEY = 'chat_analyzer_cache_chats_enabled';
