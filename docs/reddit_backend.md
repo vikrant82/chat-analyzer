@@ -23,10 +23,10 @@ The core challenge was mapping Reddit's nested structure to the application's si
     -   **Popular Posts:** Fetched from r/popular.
     -   **User's Posts:** Fetched from the authenticated user's profile.
 
--   **`Message` -> Post & Pre-Formatted Comment Tree:**
-    -   **The Post:** Becomes the first `Message` in the list with `thread_id: None`.
-    -   **The Comments:** The `get_messages` method in the `RedditClient` performs a full in-memory traversal of the comment tree. It then **pre-formats** the `text` of each comment `Message` with the correct indentation (`"    " * depth`).
-    -   **Grouping:** The `thread_id` for all comments is set to the submission's ID. This allows the existing `chat_service` to group them all into a single conversation, while the pre-formatted text provides the correct visual hierarchy.
+-   **`Message` -> Post & Comment Tree with Parent IDs:**
+    -   **The Post:** Becomes the first `Message` in the list with `thread_id: None` and `parent_id: None`.
+    -   **The Comments:** The `get_messages` method in the `RedditClient` performs a full in-memory traversal of the comment tree. It populates the `parent_id` for each comment, which is the ID of the comment it is replying to.
+    -   **Grouping:** The `thread_id` for all comments is set to the submission's ID. The `chat_service` now uses the `parent_id` field to reconstruct the comment tree and generate the correctly indented output. This centralizes the threading logic in the service layer.
 
 -   **`User` -> Redditor:** A direct mapping. `getattr` is used for safe access to attributes like `id` and `name` to prevent errors from deleted users.
 

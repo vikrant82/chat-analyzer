@@ -1,5 +1,30 @@
 # Summary of Session (2025-08-17)
 
+## Major Accomplishment: Reddit Threading Refactor & Prompt Education
+
+This session focused on refactoring the Reddit threading model to be more robust and educating the LLM on the new formatting conventions.
+
+### Key Features Implemented:
+
+1.  **Reddit Threading Refactor:**
+    *   The `Message` model in `clients/base_client.py` was updated to include a `parent_id` field.
+    *   The `RedditClient` in `clients/reddit_client.py` was refactored to populate the `parent_id` for each comment, creating a hierarchical data structure.
+    *   The `chat_service.py` was updated to handle the new hierarchical data, generating a correctly indented and formatted transcript for the LLM. This centralizes the threading logic in the service layer.
+
+2.  **AI Prompt Education:**
+    *   The `UNIFIED_SYSTEM_PROMPT` in `ai/prompts.py` was updated to include a new "**Formatting Conventions**" section.
+    *   This new section explains the `--- Thread Started ---` and `--- Thread Ended ---` markers, as well as the indentation and `|` prefix used for nested replies.
+    *   The prompt for "Shopping Deals or Offers" was updated to instruct the LLM to use Markdown tables for its output.
+
+### Documentation Updates:
+
+-   `docs/reddit_backend.md`: Updated the "Data Mapping & Threading" section to reflect the new implementation.
+-   `docs/overview.md`: Updated the description of `reddit_client.py` in the "Architecture & Core Logic" section.
+-   `docs/last_session.md`: This file has been updated to summarize the work done in this session.
+
+---
+# Summary of Session (2025-08-17)
+
 ## Major Accomplishment: Reddit Backend Integration & Bug Fixing
 
 This session focused on implementing and then iteratively debugging a new backend for the Chat Analyzer to support Reddit. This was a significant undertaking that involved backend, frontend, documentation, and extensive debugging based on user feedback.
@@ -187,13 +212,6 @@ Throughout the implementation, several critical bugs were identified and fixed:
   - Updated `clients/telegram_client.py` to use user-local day windows, group/cache by local days, treat Telethon message timestamps as UTC if naive, and compute cacheability by the user’s local “today”.
 - Verified behavior against user-provided screenshots and UX inputs: date selections in local-day now include messages exactly as shown for those days.
 - No changes to message sorting format; ISO 8601 strings remain stable, with option to harden later by sorting on parsed datetimes.
-
-### Decisions:
-- Standardize all backends on user-local day semantics (based on browser-provided IANA timezone) for:
-  - Request range interpretation
-  - Inclusion filtering
-  - Per-day caching keys and cacheability
-- Keep provider API pagination unchanged; only adjust comparison windows to local-day equivalents.
 
 # Session on Wednesday, July 30, 2025, 9:15 PM (Local Day)
 
