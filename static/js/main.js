@@ -216,6 +216,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             const { chatId, selectedChat } = params;
 
+            appState.currentChatId = chatId; // Set the active chat ID
+
             closeMobileMenu();
             if (appState.conversation.length > 0) {
                 if (!confirm("You have an ongoing conversation. Starting a new chat will clear the current conversation. Continue?")) {
@@ -223,6 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 appState.conversation = [];
                 chatWindow.innerHTML = '';
+                appState.currentChatId = null; // Clear on new session
             }
             const question = initialQuestion.value.trim();
             if (question) {
@@ -282,7 +285,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 chatWindow.appendChild(userMessageElem);
                 chatInput.value = '';
                 chatWindow.scrollTop = chatWindow.scrollHeight;
-                callChatApi(message, null); // No chatId needed for follow-up
+                callChatApi(message, appState.currentChatId); // Pass the stored chatId
             }
         });
         chatInput.addEventListener('keypress', (e) => {
@@ -305,6 +308,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             appState.conversation = [];
+            appState.currentChatId = null; // Clear active chat ID
             chatWindow.innerHTML = '';
             const chatColumn = document.getElementById('conversationalChatSection');
             if (chatColumn) {
@@ -328,6 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (chatSelect) {
         chatSelect.addEventListener('change', () => {
             appState.conversation = [];
+            appState.currentChatId = null; // Clear active chat ID
             if (chatWindow) chatWindow.innerHTML = '';
             if (conversationalChatSection) conversationalChatSection.style.display = 'none';
             if (welcomeMessage) {

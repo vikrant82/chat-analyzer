@@ -14,6 +14,7 @@ export const appState = {
     modelsLoaded: false,
     chatListStatus: { telegram: 'unloaded', webex: 'unloaded', reddit: 'unloaded' },
     conversation: [], // Holds the current chat history {role, content}
+    currentChatId: null, // Holds the ID of the current chat session
     postChoicesInstance: null,
 };
 
