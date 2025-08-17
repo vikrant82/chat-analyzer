@@ -56,10 +56,29 @@ function loadRecentChats() {
 }
 
 function restoreSession(session) {
-    const choices = getChoicesInstance();
-    if (choices) {
-        choices.setChoiceByValue(session.chat.value);
+    if (session.backend === 'reddit' && session.workflow) {
+        if (session.workflow === 'url') {
+            workflowUrl.checked = true;
+            const redditUrlInput = document.getElementById('redditUrlInput');
+            if (redditUrlInput) {
+                redditUrlInput.value = session.chat.value;
+            }
+        } else {
+            workflowSubreddit.checked = true;
+            const choices = getChoicesInstance();
+            if (choices) {
+                // This will trigger the post loading
+                choices.setChoiceByValue(session.chat.value);
+            }
+        }
+        updateRedditWorkflowUI();
+    } else {
+        const choices = getChoicesInstance();
+        if (choices) {
+            choices.setChoiceByValue(session.chat.value);
+        }
     }
+
     modelSelect.value = session.model;
     const datePickerEl = document.getElementById('dateRangePicker');
     if (datePickerEl && datePickerEl._flatpickr) {
@@ -243,6 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     value: selectedChat.value,
                     label: selectedChat.label
                 },
+                workflow: appState.activeBackend === 'reddit' ? (workflowUrl.checked ? 'url' : 'subreddit') : null,
                 model: modelSelect.value,
                 startDate: datePickerInstance.selectedDates[0] ? datePickerInstance.selectedDates[0].toISOString() : null,
                 endDate: datePickerInstance.selectedDates[1] ? datePickerInstance.selectedDates[1].toISOString() : null,
