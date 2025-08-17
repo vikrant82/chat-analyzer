@@ -61,14 +61,10 @@ async def process_chat_request(req: ChatMessage, user_id: str, backend: str, llm
     if not token:
         raise HTTPException(status_code=401, detail="Could not find session token for user.")
 
-    # Simplified cache key for Reddit, as it doesn't use dates
-    if backend == 'reddit':
-        cache_key = f"{token}_{req.chatId}"
-    else:
-        cache_key = f"{token}_{req.chatId}_{req.startDate}_{req.endDate}"
+    cache_key = f"{token}_{req.chatId}_{req.startDate}_{req.endDate}"
 
     is_historical_date = False
-    if req.endDate and backend != 'reddit':
+    if req.endDate:
         try:
             end_date_dt = datetime.strptime(req.endDate, '%Y-%m-%d').date()
             today_dt = datetime.now(timezone.utc).date()
@@ -77,7 +73,7 @@ async def process_chat_request(req: ChatMessage, user_id: str, backend: str, llm
             logger.warning(f"Could not parse endDate '{req.endDate}'. Disabling cache for this request.")
             is_historical_date = False
 
-    use_in_memory_cache = req.enableCaching and (is_historical_date or backend == 'reddit')
+    use_in_memory_cache = req.enableCaching and is_historical_date
 
     if use_in_memory_cache and cache_key in message_cache:
         logger.info(f"Cache HIT for conversation key: {cache_key}. Using cached messages.")

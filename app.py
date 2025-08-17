@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 # Local imports from our new structure
 from bot_manager import BotManager
 from services import auth_service, bot_service
-from routers import downloads, auth, chat, bots
+from routers import downloads, auth, chat, bots, reddit
 from llm.llm_client import LLMManager
 
 # --- Basic Setup & Logging ---
@@ -72,6 +72,7 @@ app.include_router(auth.router, prefix="/api", tags=["Authentication"])
 app.include_router(downloads.router, prefix="/api", tags=["Downloads"])
 app.include_router(chat.router, prefix="/api", tags=["Chat"])
 app.include_router(bots.router, prefix="/api", tags=["Bot Management & Webhooks"])
+app.include_router(reddit.router, prefix="/api", tags=["Reddit"])
 
 
 if __name__ == "__main__":

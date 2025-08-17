@@ -6,7 +6,6 @@ from services.chat_service import ChatMessage, process_chat_request
 from services import auth_service, chat_service
 from llm.llm_client import LLMManager
 from clients.factory import get_client
-from clients.reddit_client import RedditClient
 
 logger = logging.getLogger(__name__)
 
@@ -43,18 +42,6 @@ async def get_all_chats(user_id: str = Depends(auth_service.get_current_user_id)
         logger.error(f"Failed to get chats for {backend}: {e}", exc_info=True)
         if "401" in str(e) or "authoriz" in str(e).lower():
             raise HTTPException(status_code=401, detail="Session expired or invalid. Please log in again.")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/reddit/posts")
-async def get_reddit_posts(subreddit: str, user_id: str = Depends(auth_service.get_current_user_id)):
-    try:
-        client = get_client("reddit")
-        if isinstance(client, RedditClient):
-            return await client.get_posts_for_subreddit(user_id, subreddit)
-        else:
-            raise HTTPException(status_code=400, detail="The configured backend is not Reddit.")
-    except Exception as e:
-        logger.error(f"Failed to get posts for subreddit {subreddit}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/chat")

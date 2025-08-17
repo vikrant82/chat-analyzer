@@ -14,9 +14,87 @@ from clients.base_client import ChatClient, User, Chat, Message, Attachment
 SESSION_DIR = os.path.join(os.path.dirname(__file__), '..', 'sessions')
 os.makedirs(SESSION_DIR, exist_ok=True)
 
-def get_reddit_session_file(username: str) -> str:
-    safe_username = ''.join(filter(str.isalnum, username))
-    return os.path.join(SESSION_DIR, f'reddit_session_{safe_username}.json')
+class RedditSessionManager:
+    """
+    Manages Reddit session data (e.g., refresh tokens).
+    """
+    @staticmethod
+    def _get_session_file(username: str) -> str:
+        safe_username = ''.join(filter(str.isalnum, username))
+        return os.path.join(SESSION_DIR, f'reddit_session_{safe_username}.json')
+
+    def save_token(self, username: str, refresh_token: str):
+        session_file = self._get_session_file(username)
+        with open(session_file, 'w') as f:
+            json.dump({"refresh_token": refresh_token}, f)
+
+    def get_token(self, username: str) -> Optional[str]:
+        session_file = self._get_session_file(username)
+        if not os.path.exists(session_file):
+            return None
+        try:
+            with open(session_file, 'r') as f:
+                session_data = json.load(f)
+            return session_data.get("refresh_token")
+        except (json.JSONDecodeError, IOError):
+            return None
+
+    def delete_session(self, username: str):
+        session_file = self._get_session_file(username)
+        if os.path.exists(session_file):
+            os.remove(session_file)
+
+class ImageFetcher:
+    """
+    A helper class to fetch and process images from URLs.
+    """
+    def __init__(self, image_processing_settings: Optional[Dict[str, Any]] = None):
+        self.enabled = image_processing_settings and image_processing_settings.get('enabled')
+
+    async def fetch_images_from_text(self, text: str) -> List[Attachment]:
+        if not self.enabled or not text:
+            return []
+        
+        image_urls = set(re.findall(r'(https?://\S+\.(?:png|jpg|jpeg|gif))', text))
+        return await self._download_and_encode(image_urls)
+
+    async def fetch_submission_images(self, submission) -> List[Attachment]:
+        if not self.enabled:
+            return []
+
+        image_urls = set()
+        # 1. Direct image link
+        link_type, _ = mimetypes.guess_type(submission.url)
+        if link_type and 'image' in link_type:
+            image_urls.add(submission.url)
+
+        # 2. Gallery images
+        if getattr(submission, 'is_gallery', False):
+            media_meta = getattr(submission, 'media_metadata', {})
+            if media_meta:
+                for media_id, meta in media_meta.items():
+                    if meta.get('e') == 'Image':
+                        url = meta.get('s', {}).get('u')
+                        if url:
+                            import html
+                            image_urls.add(html.unescape(url))
+        
+        return await self._download_and_encode(image_urls)
+
+    async def _download_and_encode(self, urls: set) -> List[Attachment]:
+        attachments = []
+        async with httpx.AsyncClient() as client:
+            for url in urls:
+                try:
+                    response = await client.get(url, timeout=10.0)
+                    response.raise_for_status()
+                    content_type = response.headers.get('content-type', 'application/octet-stream')
+                    if 'image' in content_type:
+                        data = base64.b64encode(response.content).decode('utf-8')
+                        attachments.append(Attachment(mime_type=content_type, data=data))
+                except (httpx.RequestError, httpx.HTTPStatusError) as e:
+                    print(f"Failed to download image from {url}: {e}")
+        return attachments
 
 class RedditClient(ChatClient):
     """
@@ -24,13 +102,23 @@ class RedditClient(ChatClient):
     """
 
     def __init__(self, config: Dict[str, Any]):
-        self.reddit = asyncpraw.Reddit(
-            client_id=config["client_id"],
-            client_secret=config["client_secret"],
-            redirect_uri=config["redirect_uri"],
-            user_agent=config["user_agent"],
-        )
-        # self.auth_details is removed, we use files now.
+        self.reddit_config = {
+            "client_id": config["client_id"],
+            "client_secret": config["client_secret"],
+            "redirect_uri": config["redirect_uri"],
+            "user_agent": config["user_agent"],
+        }
+        self.reddit = asyncpraw.Reddit(**self.reddit_config)
+        self.session_manager = RedditSessionManager()
+
+    async def _get_reddit_instance(self, user_identifier: str) -> asyncpraw.Reddit:
+        """
+        Returns an authenticated asyncpraw.Reddit instance for the given user.
+        """
+        refresh_token = self.session_manager.get_token(user_identifier)
+        if not refresh_token:
+            raise Exception("Could not find refresh token for user.")
+        return asyncpraw.Reddit(**self.reddit_config, refresh_token=refresh_token)
 
     async def login(self, auth_details: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -50,13 +138,13 @@ class RedditClient(ChatClient):
 
         # Exchange the code for a refresh token
         refresh_token = await self.reddit.auth.authorize(code)
+        if not refresh_token:
+            raise ValueError("Could not get refresh token from authorization code.")
         
         # Now that we are authorized, get the username to create the session file
         temp_reddit_instance = asyncpraw.Reddit(
-            client_id=self.reddit.config.client_id,
-            client_secret=self.reddit.config.client_secret,
-            refresh_token=refresh_token,
-            user_agent=self.reddit.config.user_agent,
+            **self.reddit_config,
+            refresh_token=refresh_token
         )
         redditor = await temp_reddit_instance.user.me()
         username = redditor.name if redditor else "Unknown"
@@ -64,9 +152,7 @@ class RedditClient(ChatClient):
         if username == "Unknown":
             raise Exception("Could not determine Reddit username.")
 
-        session_file = get_reddit_session_file(username)
-        with open(session_file, 'w') as f:
-            json.dump({"refresh_token": refresh_token}, f)
+        self.session_manager.save_token(username, refresh_token)
 
         return {"status": "success", "user_id": username, "token": refresh_token}
 
@@ -74,9 +160,7 @@ class RedditClient(ChatClient):
         """
         Logs the user out and cleans up the session.
         """
-        session_file = get_reddit_session_file(user_identifier)
-        if os.path.exists(session_file):
-            os.remove(session_file)
+        self.session_manager.delete_session(user_identifier)
 
     async def get_chats(self, user_identifier: str) -> List[Chat]:
         """
@@ -86,18 +170,7 @@ class RedditClient(ChatClient):
         if not await self.is_session_valid(user_identifier):
             raise Exception("User session is not valid.")
 
-        session_file = get_reddit_session_file(user_identifier)
-        with open(session_file, 'r') as f:
-            session_data = json.load(f)
-        refresh_token = session_data.get("refresh_token")
-        
-        # Create a new authorized instance for this user
-        reddit_user_instance = asyncpraw.Reddit(
-            client_id=self.reddit.config.client_id,
-            client_secret=self.reddit.config.client_secret,
-            refresh_token=refresh_token,
-            user_agent=self.reddit.config.user_agent,
-        )
+        reddit_user_instance = await self._get_reddit_instance(user_identifier)
 
         chats = []
 
@@ -135,16 +208,7 @@ class RedditClient(ChatClient):
         if not await self.is_session_valid(user_identifier):
             raise Exception("User session is not valid.")
 
-        session_file = get_reddit_session_file(user_identifier)
-        with open(session_file, 'r') as f:
-            session_data = json.load(f)
-        refresh_token = session_data.get("refresh_token")
-        reddit_user_instance = asyncpraw.Reddit(
-            client_id=self.reddit.config.client_id,
-            client_secret=self.reddit.config.client_secret,
-            refresh_token=refresh_token,
-            user_agent=self.reddit.config.user_agent,
-        )
+        reddit_user_instance = await self._get_reddit_instance(user_identifier)
 
         chats = []
         subreddit = await reddit_user_instance.subreddit(subreddit_name)
@@ -172,16 +236,7 @@ class RedditClient(ChatClient):
                 # If it looks like a URL but we can't parse it, raise an error
                 raise ValueError("Invalid Reddit URL format. Could not extract submission ID.")
 
-        session_file = get_reddit_session_file(user_identifier)
-        with open(session_file, 'r') as f:
-            session_data = json.load(f)
-        refresh_token = session_data.get("refresh_token")
-        reddit_user_instance = asyncpraw.Reddit(
-            client_id=self.reddit.config.client_id,
-            client_secret=self.reddit.config.client_secret,
-            refresh_token=refresh_token,
-            user_agent=self.reddit.config.user_agent,
-        )
+        reddit_user_instance = await self._get_reddit_instance(user_identifier)
 
         submission = await reddit_user_instance.submission(id=submission_id)
         messages: List[Message] = []
@@ -199,41 +254,10 @@ class RedditClient(ChatClient):
         if submission.selftext:
             post_text = f"{submission.title}\n\n{submission.selftext}"
 
-        attachments = []
-        if image_processing_settings and image_processing_settings.get('enabled'):
-            # First, check if the submission URL itself is a direct image link
-            link_type, _ = mimetypes.guess_type(submission.url)
-            is_direct_image = link_type and 'image' in link_type
-
-            # Combine direct link, gallery images, and links found in text
-            image_urls = set(re.findall(r'(https?://\S+\.(?:png|jpg|jpeg|gif))', post_text))
-            if is_direct_image:
-                image_urls.add(submission.url)
-            
-            # Handle galleries
-            if getattr(submission, 'is_gallery', False):
-                media_meta = getattr(submission, 'media_metadata', {})
-                if media_meta:
-                    for media_id, meta in media_meta.items():
-                        if meta.get('e') == 'Image':
-                            # 's' contains the image data, 'u' is the URL
-                            url = meta.get('s', {}).get('u')
-                            if url:
-                                # URLs in metadata are escaped, e.g., & -> &
-                                import html
-                                image_urls.add(html.unescape(url))
-
-            async with httpx.AsyncClient() as client:
-                for url in image_urls:
-                    try:
-                        response = await client.get(url, timeout=10.0)
-                        response.raise_for_status()
-                        content_type = response.headers.get('content-type', 'application/octet-stream')
-                        if 'image' in content_type:
-                            data = base64.b64encode(response.content).decode('utf-8')
-                            attachments.append(Attachment(mime_type=content_type, data=data))
-                    except (httpx.RequestError, httpx.HTTPStatusError) as e:
-                        print(f"Failed to download image from {url}: {e}")
+        image_fetcher = ImageFetcher(image_processing_settings)
+        submission_attachments = await image_fetcher.fetch_submission_images(submission)
+        text_attachments = await image_fetcher.fetch_images_from_text(post_text)
+        attachments = submission_attachments + text_attachments
 
         messages.append(Message(
             id=submission.id,
@@ -261,20 +285,7 @@ class RedditClient(ChatClient):
                 comment_author_id = getattr(comment_author, "id", "0") if comment_author else "0"
                 comment_author_name = getattr(comment_author, "name", "[deleted]") if comment_author else "[deleted]"
 
-                comment_attachments = []
-                if image_processing_settings and image_processing_settings.get('enabled'):
-                    image_urls = re.findall(r'(https?://\S+\.(?:png|jpg|jpeg|gif))', comment.body)
-                    async with httpx.AsyncClient() as client:
-                        for url in image_urls:
-                            try:
-                                response = await client.get(url, timeout=10.0)
-                                response.raise_for_status()
-                                content_type = response.headers.get('content-type', 'application/octet-stream')
-                                if 'image' in content_type:
-                                    data = base64.b64encode(response.content).decode('utf-8')
-                                    comment_attachments.append(Attachment(mime_type=content_type, data=data))
-                            except (httpx.RequestError, httpx.HTTPStatusError) as e:
-                                print(f"Failed to download image from {url}: {e}")
+                comment_attachments = await image_fetcher.fetch_images_from_text(comment.body)
 
                 messages.append(Message(
                     id=comment.id,
@@ -298,12 +309,4 @@ class RedditClient(ChatClient):
         """
         Checks if the current session for the user is still active and authorized.
         """
-        session_file = get_reddit_session_file(user_identifier)
-        if not os.path.exists(session_file):
-            return False
-        try:
-            with open(session_file, 'r') as f:
-                session_data = json.load(f)
-            return "refresh_token" in session_data
-        except (json.JSONDecodeError, IOError):
-            return False
+        return self.session_manager.get_token(user_identifier) is not None

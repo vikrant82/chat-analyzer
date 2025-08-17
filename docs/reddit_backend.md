@@ -27,6 +27,7 @@ The core challenge was mapping Reddit's nested structure to the application's si
     -   **The Post:** Becomes the first `Message` in the list with `thread_id: None` and `parent_id: None`.
     -   **The Comments:** The `get_messages` method in the `RedditClient` performs a full in-memory traversal of the comment tree. It populates the `parent_id` for each comment, which is the ID of the comment it is replying to.
     -   **Grouping:** The `thread_id` for all comments is set to the submission's ID. The `chat_service` now uses the `parent_id` field to reconstruct the comment tree and generate the correctly indented output. This centralizes the threading logic in the service layer.
+    -   **Image Fetching:** The `RedditClient` now uses a dedicated `ImageFetcher` class to handle the complex logic of fetching images from direct links, galleries, and inline URLs.
 
 -   **`User` -> Redditor:** A direct mapping. `getattr` is used for safe access to attributes like `id` and `name` to prevent errors from deleted users.
 
@@ -34,7 +35,7 @@ The core challenge was mapping Reddit's nested structure to the application's si
 
 -   **Mechanism:** Standard OAuth 2.0 Authorization Code Grant flow.
 -   **Redirect URI:** The required redirect URI for local development is `http://localhost:8000/api/auth/callback/reddit`.
--   **File-Based Sessions:** The client was refactored to use persistent, file-based sessions stored in the `sessions/` directory, mirroring the behavior of the Telegram and Webex clients. This resolved a critical bug where sessions were being lost.
+-   **File-Based Sessions:** The client was refactored to use a dedicated `RedditSessionManager` class to handle the storage and retrieval of session data from the `sessions/` directory. This resolved a critical bug where sessions were being lost.
 
 ## 5. UI/UX: Workflows and Progressive Disclosure
 
@@ -60,8 +61,10 @@ The `RedditClient` now has robust image fetching capabilities:
 
 ### New Files
 1.  **`clients/reddit_client.py`**: The main client file.
-2.  **`docs/reddit_guide.md`**: User-facing documentation for the new feature.
-3.  **`docs/last_session.md`**: A running log of session summaries (this practice was adopted during the implementation).
+2.  **`routers/reddit.py`**: A new router for Reddit-specific endpoints.
+3.  **`services/reddit_service.py`**: A new service for Reddit-specific business logic.
+4.  **`docs/reddit_guide.md`**: User-facing documentation for the new feature.
+5.  **`docs/last_session.md`**: A running log of session summaries (this practice was adopted during the implementation).
 
 ### Modified Files
 1.  **`readme.md`**: Updated to include Reddit as a supported service.

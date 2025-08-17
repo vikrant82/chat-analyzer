@@ -20,8 +20,8 @@
 - `ai/`: System prompts, LLM client factories, and OpenAI-compatible streaming logic.
 - `clients/`: Platform-specific clients (Telegram, Webex, Reddit) for fetching chat data.
 - `llm/`: Manages LLM provider clients (e.g., Google AI, LM Studio).
-- `routers/`: FastAPI API endpoint definitions.
-- `services/`: Core business logic (auth, chat processing, downloads).
+- `routers/`: FastAPI API endpoint definitions. `chat.py` is generic, while `reddit.py` contains Reddit-specific endpoints.
+- `services/`: Core business logic. `chat_service.py` is generic, while `reddit_service.py` contains Reddit-specific logic.
 - `static/`: Frontend HTML, CSS, and modular JavaScript files (`static/js/`).
 - `bot_manager.py`: Handles registration and persistence of bot configurations into `config.json`.
 - `app.py`: Main FastAPI application entry point.
@@ -37,17 +37,18 @@
 
 ## 5. Architecture & Core Logic
 - **`app.py`**: Initializes the FastAPI app, mounts the static frontend, and includes the API routers.
-- **`routers/`**: Defines all API endpoints for authentication, chat, bots, and downloads.
+- **`routers/`**: Defines all API endpoints. `chat.py` and `bots.py` are generic, while `reddit.py` contains endpoints specific to the Reddit backend.
 - **`services/`**:
     - `auth_service.py`: Manages user login sessions and token persistence.
-    - `chat_service.py`: Orchestrates fetching messages, formatting them for the LLM (including threading and images), and streaming the AI response.
+    - `chat_service.py`: A generic service that orchestrates fetching messages, formatting them for the LLM (including threading and images), and streaming the AI response. It delegates backend-specific logic to the appropriate service.
+    - `reddit_service.py`: Handles the business logic for the Reddit backend.
     - `bot_service.py`: Handles incoming webhooks from bots, holds in-memory state for bot chat modes (`/aimode`), and coordinates with other services to generate a response.
     - `download_service.py`: Creates downloadable files in various formats.
 - **`clients/`**:
-    - `factory.py`: Returns the correct client instance based on the selected backend (`telegram` or `webex`).
+    - `factory.py`: Returns the correct client instance based on the selected backend.
     - `telegram_client.py`: Uses Telethon to read chat history and reconstructs threads from reply chains.
     - `webex_client.py`: Uses native thread IDs for simple threading.
-    - `reddit_client.py`: Fetches posts and comment trees, populating a `parent_id` for each comment to represent the nested structure. It also handles fetching images from direct links, galleries, and inline links. The `chat_service` is responsible for formatting the final threaded output.
+    - `reddit_client.py`: Contains a `RedditSessionManager` for session handling and an `ImageFetcher` for image processing. It fetches posts and comment trees, populating a `parent_id` for each comment to represent the nested structure. The `chat_service` is responsible for formatting the final threaded output.
 - **`llm/llm_client.py`**: The `LLMManager` initializes all configured LLM providers (Google AI, LM Studio, etc.), discovers their available models, and provides a unified `call_conversational` method for services to use. It also includes an `is_multimodal` check to determine if a model can handle images.
 - **`bot_manager.py`**: Provides methods to read, add, and remove bot configurations from the `config.json` file, ensuring changes are persisted.
 - **Caching Architecture:**
@@ -61,6 +62,7 @@
     - `POST /api/logout`: Logs out the current user.
 - **Chat & Data:**
     - `GET /api/chats`: Lists available chats for the logged-in user.
+    - `GET /api/reddit/posts`: Fetches the top posts for a given subreddit.
     - `POST /api/chat`: Main endpoint to start a chat analysis. Streams the response.
     - `POST /api/download`: Generates and returns a downloadable transcript.
     - `POST /api/clear-session`: Clears server-side caches for the user.
