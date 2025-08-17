@@ -14,7 +14,7 @@ from .prompts import UNIFIED_SYSTEM_PROMPT, GENERAL_AI_SYSTEM_PROMPT
 logger = logging.getLogger(__name__)
 
 DEPRECATED_GOOGLE_MODELS = {"gemini-1.0-pro-vision-latest"}
-SUPPORTED_GOOGLE_MIMETYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+SUPPORTED_GOOGLE_MIMETYPES = {"image/png", "image/jpeg", "image/webp"}
 
 class GoogleAILLM(LLMClient):
     def __init__(self, config: Dict[str, Any]):
@@ -141,8 +141,10 @@ class GoogleAILLM(LLMClient):
         finally:
             # The google-generativeai library has a known issue where it doesn't close
             # the underlying aiohttp session. This is a workaround to find and close it.
-            if model and hasattr(model, '_client') and hasattr(model._client, '_session'):
-                session = model._client._session
-                if isinstance(session, aiohttp.ClientSession) and not session.closed:
-                    await session.close()
-                    logger.info("Closed aiohttp session for Google AI client.")
+            if model and hasattr(model, '_client'):
+                client = getattr(model, '_client', None)
+                if client and hasattr(client, '_session'):
+                    session = getattr(client, '_session', None)
+                    if isinstance(session, aiohttp.ClientSession) and not session.closed:
+                        await session.close()
+                        logger.info("Closed aiohttp session for Google AI client.")

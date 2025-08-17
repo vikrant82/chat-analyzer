@@ -300,7 +300,7 @@ export async function handleDownloadChat() {
     setLoadingState(downloadChatButton, true, 'Downloading...');
     try {
         const requestBody = {
-            chatId: getChoicesInstance().getValue(true),
+            chatId: appState.currentChatId || getChoicesInstance().getValue(true),
             startDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[0]),
             endDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[1]),
             enableCaching: cacheChatsToggle.checked,
