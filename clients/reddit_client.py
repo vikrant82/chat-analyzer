@@ -1,6 +1,10 @@
 import asyncpraw
 import os
 import json
+import re
+import httpx
+import base64
+import mimetypes
 from datetime import datetime, timezone
 from asyncpraw.models import MoreComments
 from typing import List, Dict, Any, Optional
@@ -183,12 +187,49 @@ class RedditClient(ChatClient):
         if submission.selftext:
             post_text = f"{submission.title}\n\n{submission.selftext}"
 
+        attachments = []
+        if image_processing_settings and image_processing_settings.get('enabled'):
+            # First, check if the submission URL itself is a direct image link
+            link_type, _ = mimetypes.guess_type(submission.url)
+            is_direct_image = link_type and 'image' in link_type
+
+            # Combine direct link, gallery images, and links found in text
+            image_urls = set(re.findall(r'(https?://\S+\.(?:png|jpg|jpeg|gif))', post_text))
+            if is_direct_image:
+                image_urls.add(submission.url)
+            
+            # Handle galleries
+            if getattr(submission, 'is_gallery', False):
+                media_meta = getattr(submission, 'media_metadata', {})
+                if media_meta:
+                    for media_id, meta in media_meta.items():
+                        if meta.get('e') == 'Image':
+                            # 's' contains the image data, 'u' is the URL
+                            url = meta.get('s', {}).get('u')
+                            if url:
+                                # URLs in metadata are escaped, e.g., & -> &
+                                import html
+                                image_urls.add(html.unescape(url))
+
+            async with httpx.AsyncClient() as client:
+                for url in image_urls:
+                    try:
+                        response = await client.get(url, timeout=10.0)
+                        response.raise_for_status()
+                        content_type = response.headers.get('content-type', 'application/octet-stream')
+                        if 'image' in content_type:
+                            data = base64.b64encode(response.content).decode('utf-8')
+                            attachments.append(Attachment(mime_type=content_type, data=data))
+                    except (httpx.RequestError, httpx.HTTPStatusError) as e:
+                        print(f"Failed to download image from {url}: {e}")
+
         messages.append(Message(
             id=submission.id,
             text=post_text,
             author=User(id=post_author_id, name=post_author_name),
             timestamp=datetime.fromtimestamp(submission.created_utc, tz=timezone.utc).isoformat(),
             thread_id=None,
+            attachments=attachments,
         ))
 
         # 2. Fetch and process all comments
@@ -199,7 +240,7 @@ class RedditClient(ChatClient):
             print(f"Error replacing 'more' comments: {e}")
 
         # Use a recursive helper function to traverse the comment tree
-        def _process_comment_tree(comment_list, parent_id):
+        async def _process_comment_tree(comment_list, parent_id):
             for comment in comment_list:
                 if isinstance(comment, MoreComments):
                     continue
@@ -208,6 +249,21 @@ class RedditClient(ChatClient):
                 comment_author_id = getattr(comment_author, "id", "0") if comment_author else "0"
                 comment_author_name = getattr(comment_author, "name", "[deleted]") if comment_author else "[deleted]"
 
+                comment_attachments = []
+                if image_processing_settings and image_processing_settings.get('enabled'):
+                    image_urls = re.findall(r'(https?://\S+\.(?:png|jpg|jpeg|gif))', comment.body)
+                    async with httpx.AsyncClient() as client:
+                        for url in image_urls:
+                            try:
+                                response = await client.get(url, timeout=10.0)
+                                response.raise_for_status()
+                                content_type = response.headers.get('content-type', 'application/octet-stream')
+                                if 'image' in content_type:
+                                    data = base64.b64encode(response.content).decode('utf-8')
+                                    comment_attachments.append(Attachment(mime_type=content_type, data=data))
+                            except (httpx.RequestError, httpx.HTTPStatusError) as e:
+                                print(f"Failed to download image from {url}: {e}")
+
                 messages.append(Message(
                     id=comment.id,
                     text=comment.body,
@@ -215,13 +271,14 @@ class RedditClient(ChatClient):
                     timestamp=datetime.fromtimestamp(comment.created_utc, tz=timezone.utc).isoformat(),
                     thread_id=submission.id, # All comments belong to the same submission thread
                     parent_id=parent_id,
+                    attachments=comment_attachments,
                 ))
 
                 # Recurse through replies
                 if hasattr(comment, 'replies') and comment.replies:
-                    _process_comment_tree(comment.replies, parent_id=comment.id)
+                    await _process_comment_tree(comment.replies, parent_id=comment.id)
 
-        _process_comment_tree(submission.comments, parent_id=submission.id)
+        await _process_comment_tree(submission.comments, parent_id=submission.id)
 
         return messages
 

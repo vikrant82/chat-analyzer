@@ -50,12 +50,34 @@ Once configured, start the Chat Analyzer application.
 3.  You will be redirected to Reddit to authorize the application. Click **"Allow"**.
 4.  You will be redirected back to the Chat Analyzer, now logged in.
 
-### Selecting a Chat
+### Workflows
 
-The "Select a Chat" dropdown for Reddit works differently from other services:
+The Reddit backend offers two distinct workflows, which can be selected using the radio buttons that appear after you select the "Reddit" service.
 
--   **Subscribed Subreddits:** The dropdown will be populated with a list of subreddits you are subscribed to. Selecting one of these will reveal a second dropdown, "Select a Post," containing the top "hot" posts from that subreddit.
--   **Popular Posts:** The dropdown also contains a list of current popular posts from r/popular for quick access.
--   **My Posts:** A list of your own most recent posts is also included.
+#### 1. Analyze a Subreddit
 
-To start an analysis, you must select a specific **post**. You can either select one directly from the "Popular" or "My Posts" groups, or you can select a subreddit first and then a post from the second dropdown.
+This workflow allows you to perform a deep analysis of a specific post and its entire comment tree.
+
+-   **Select a Chat:** This dropdown allows you to choose a source for posts.
+    -   **Subscribed Subreddits:** The dropdown will be populated with a list of subreddits you are subscribed to. Selecting one of these will reveal a second dropdown, "Select a Post," containing the top "hot" posts from that subreddit.
+    -   **Popular Posts:** The dropdown also contains a list of current popular posts from r/popular for quick access.
+    -   **My Posts:** A list of your own most recent posts is also included.
+-   **Select a Post:** To start an analysis, you must select a specific **post**. You can either select one directly from the "Popular" or "My Posts" groups, or you can select a subreddit first and then a post from the second dropdown.
+
+#### 2. Summarize from URL
+
+This workflow allows you to quickly get a summary of a Reddit post by simply pasting its URL.
+
+1.  Select the "Summarize from URL" workflow.
+2.  Paste the full URL of the Reddit post you want to summarize into the input field.
+3.  Click the "Summarize from URL" button.
+
+### Image Processing
+
+The Reddit backend now supports fetching and analyzing images from posts and comments.
+
+-   **Supported Image Types:**
+    -   **Direct Links:** Posts that are a direct link to an image file (e.g., `.jpg`, `.png`).
+    -   **Reddit Galleries:** Posts that contain multiple images in a gallery format.
+    -   **Inline Links:** Image URLs found within the text of the main post or any of its comments.
+-   **Enabling Image Processing:** To enable this feature, simply check the **"Enable Image Processing"** checkbox before starting the chat.

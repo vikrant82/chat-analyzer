@@ -8,7 +8,8 @@ import {
     loginSubmitButton, webexLoginButton, verifyButton, logoutButton, refreshChatsLink,
     modelSelect, backendSelectMain, downloadChatButton, manageBotsButton, backToChatsButton,
     registerBotButton, toggleLhsButton, mainContainer, mobileMenuOverlay, themeCheckbox,
-    conversationalChatSection, downloadHelp, chatSectionTitle, botManagementTitle
+    conversationalChatSection, downloadHelp, chatSectionTitle, botManagementTitle,
+    workflowSubreddit, workflowUrl, updateRedditWorkflowUI
 } from './ui.js';
 import { handleLogin, handleVerify, handleFullLogout, checkSessionOnLoad, handleBackendChange, switchService } from './auth.js';
 import { handleLoadChats, callChatApi, handleDownloadChat, loadModels } from './chat.js';
@@ -99,6 +100,7 @@ function showSectionWithLogic(sectionName) {
             backendSelectMain.value = appState.activeBackend;
         }
         handleBackendChange(); // Ensure UI elements like image settings are correctly shown/hidden
+        updateRedditWorkflowUI();
         if (!appState.modelsLoaded) {
             loadModels();
         }
@@ -332,6 +334,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (initialQuestion) {
         initialQuestion.addEventListener('input', updateStartChatButtonState);
     }
+
+    if (workflowSubreddit) workflowSubreddit.addEventListener('change', updateRedditWorkflowUI);
+    if (workflowUrl) workflowUrl.addEventListener('change', updateRedditWorkflowUI);
 
     if (backendSelect) backendSelect.addEventListener('change', handleBackendChange);
     if (backendSelectMain) backendSelectMain.addEventListener('change', handleBackendChange);

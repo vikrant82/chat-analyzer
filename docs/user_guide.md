@@ -47,11 +47,11 @@ Below the main controls, you will find a "Recent Chats" list. This feature helps
 ### Platform-Specific Chat Selection & Threading
 
 -   **Telegram & Webex**: The dropdown will show a list of your chats and rooms. The analyzer will automatically reconstruct reply chains to provide accurate conversational context to the AI.
--   **Reddit**: The dropdown for Reddit is a "hybrid" list containing:
-    -   **Subscribed Subreddits**: Selecting a subreddit will reveal a second dropdown where you can choose one of its top "hot" posts.
-    -   **Popular Posts & My Posts**: You can also select a post directly from these groups.
+-   **Reddit**: The Reddit backend offers two distinct workflows:
+    -   **Analyze a Subreddit**: This workflow allows you to perform a deep analysis of a specific post and its entire comment tree. The "Select a Chat" dropdown is a "hybrid" list containing your subscribed subreddits, popular posts, and your own posts. To start an analysis, you must always select a specific **post**.
+    -   **Summarize from URL**: This workflow allows you to quickly get a summary of a Reddit post by simply pasting its URL.
     
-    To start an analysis, you must always select a specific **post**. The analyzer will then fetch that post and its entire comment tree, correctly indenting all nested replies to preserve the thread structure.
+    The analyzer will then fetch the post and its entire comment tree, correctly indenting all nested replies to preserve the thread structure. It will also fetch any images from the post or comments if image processing is enabled.
 
 ## Using the Bots
 

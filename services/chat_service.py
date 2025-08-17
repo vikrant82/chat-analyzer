@@ -21,8 +21,8 @@ class ChatMessage(BaseModel):
     chatId: str
     modelName: str
     provider: str
-    startDate: str
-    endDate: str
+    startDate: Optional[str] = None
+    endDate: Optional[str] = None
     enableCaching: bool
     conversation: List[Dict[str, Any]]
     originalMessages: Optional[List[Dict[str, Any]]] = None
@@ -61,17 +61,23 @@ async def process_chat_request(req: ChatMessage, user_id: str, backend: str, llm
     if not token:
         raise HTTPException(status_code=401, detail="Could not find session token for user.")
 
-    cache_key = f"{token}_{req.chatId}_{req.startDate}_{req.endDate}"
-    
-    try:
-        end_date_dt = datetime.strptime(req.endDate, '%Y-%m-%d').date()
-        today_dt = datetime.now(timezone.utc).date()
-        is_historical_date = end_date_dt < today_dt
-    except ValueError:
-        logger.warning(f"Could not parse endDate '{req.endDate}'. Disabling cache for this request.")
-        is_historical_date = False
+    # Simplified cache key for Reddit, as it doesn't use dates
+    if backend == 'reddit':
+        cache_key = f"{token}_{req.chatId}"
+    else:
+        cache_key = f"{token}_{req.chatId}_{req.startDate}_{req.endDate}"
 
-    use_in_memory_cache = req.enableCaching and is_historical_date
+    is_historical_date = False
+    if req.endDate and backend != 'reddit':
+        try:
+            end_date_dt = datetime.strptime(req.endDate, '%Y-%m-%d').date()
+            today_dt = datetime.now(timezone.utc).date()
+            is_historical_date = end_date_dt < today_dt
+        except (ValueError, TypeError):
+            logger.warning(f"Could not parse endDate '{req.endDate}'. Disabling cache for this request.")
+            is_historical_date = False
+
+    use_in_memory_cache = req.enableCaching and (is_historical_date or backend == 'reddit')
 
     if use_in_memory_cache and cache_key in message_cache:
         logger.info(f"Cache HIT for conversation key: {cache_key}. Using cached messages.")
@@ -103,7 +109,8 @@ async def process_chat_request(req: ChatMessage, user_id: str, backend: str, llm
                 yield f"data: {json.dumps({'type': 'content', 'chunk': 'No messages found in the selected date range. Please select a different range.'})}\n\n"
             return empty_message_stream()
         
-        original_messages_structured = _format_messages_for_llm(messages_list)
+        is_multimodal = llm_manager.is_multimodal(req.provider, req.modelName)
+        original_messages_structured = _format_messages_for_llm(messages_list, is_multimodal)
         message_count = len(messages_list)
         
         if use_in_memory_cache:
@@ -133,7 +140,7 @@ async def process_chat_request(req: ChatMessage, user_id: str, backend: str, llm
 
     return stream_generator()
 
-def _format_messages_for_llm(messages: List[StandardMessage]) -> List[Dict[str, Any]]:
+def _format_messages_for_llm(messages: List[StandardMessage], is_multimodal: bool) -> List[Dict[str, Any]]:
     """
     Formats a list of messages for the LLM, handling both flat and threaded conversations.
     If parent_id is present, it builds and formats a hierarchical tree.
@@ -143,12 +150,12 @@ def _format_messages_for_llm(messages: List[StandardMessage]) -> List[Dict[str, 
     is_threaded_conversation = any(msg.parent_id is not None for msg in messages)
 
     if is_threaded_conversation:
-        return _format_threaded_conversation(messages)
+        return _format_threaded_conversation(messages, is_multimodal)
     else:
-        return _format_flat_conversation(messages)
+        return _format_flat_conversation(messages, is_multimodal)
 
 
-def _format_flat_conversation(messages: List[StandardMessage]) -> List[Dict[str, Any]]:
+def _format_flat_conversation(messages: List[StandardMessage], is_multimodal: bool) -> List[Dict[str, Any]]:
     """Handles formatting for services without deep threading (e.g., Webex, old Telegram)."""
     parts: List[Dict[str, Any]] = []
     transcript_lines: List[str] = []
@@ -227,7 +234,8 @@ def _format_flat_conversation(messages: List[StandardMessage]) -> List[Dict[str,
 
     full_text = "Context: Chat History (Local Day)\n" + "\n".join(transcript_lines)
     parts.append({"type": "text", "text": full_text})
-    parts.extend(image_parts_in_order)
+    if is_multimodal:
+        parts.extend(image_parts_in_order)
 
     return [{"role": "user", "content": parts}]
 
@@ -237,7 +245,7 @@ def clear_chat_cache(token: str):
         del message_cache[key]
         logger.info(f"Removed message cache for key: {key}")
 
-def _format_threaded_conversation(messages: List[StandardMessage]) -> List[Dict[str, Any]]:
+def _format_threaded_conversation(messages: List[StandardMessage], is_multimodal: bool) -> List[Dict[str, Any]]:
     """Handles formatting for services with n-level threading (e.g., Reddit)."""
     parts: List[Dict[str, Any]] = []
     transcript_lines: List[str] = []
@@ -256,7 +264,7 @@ def _format_threaded_conversation(messages: List[StandardMessage]) -> List[Dict[
             
     root_messages.sort(key=lambda m: m.timestamp)
 
-    def format_message_text(msg: StandardMessage, depth: int) -> str:
+    def format_message_text(msg: StandardMessage, depth: int, image_parts: list) -> str:
         nonlocal image_seq
         
         # Indentation for tree structure
@@ -281,39 +289,53 @@ def _format_threaded_conversation(messages: List[StandardMessage]) -> List[Dict[
             for attachment in msg.attachments:
                 image_seq += 1
                 attachment_lines.append(f"{indent}{line_prefix}(Image #{image_seq}: {attachment.mime_type})")
-                # ... image handling logic ...
+                caption_text = f"[Image #{image_seq}] author={msg.author.name}; at={msg.timestamp}; thread_depth={depth}"
+                image_parts.append({
+                    "type": "text",
+                    "text": caption_text
+                })
+                image_parts.append({
+                    "type": "image",
+                    "id": f"img-{image_seq}",
+                    "meta": {
+                        "author": msg.author.name,
+                        "timestamp": str(msg.timestamp),
+                        "thread_depth": depth,
+                        "caption": f"Image #{image_seq} from {msg.author.name} at {msg.timestamp}"
+                    },
+                    "source": {
+                        "type": "base64",
+                        "media_type": attachment.mime_type,
+                        "data": attachment.data,
+                    },
+                })
             full_text += "\n" + "\n".join(attachment_lines)
             
         return full_text
 
-    def traverse_and_format(message_id: str, depth: int, output_list: List[str]):
+    def traverse_and_format(message_id: str, depth: int, output_list: List[str], image_parts: list):
         msg = message_map.get(message_id)
         if not msg: return
         
-        output_list.append(format_message_text(msg, depth))
+        output_list.append(format_message_text(msg, depth, image_parts))
         
         sorted_children = sorted(children_map.get(message_id, []), key=lambda m: m.timestamp)
         for child_msg in sorted_children:
-            traverse_and_format(child_msg.id, depth + 1, output_list)
+            traverse_and_format(child_msg.id, depth + 1, output_list, image_parts)
 
     # Process root messages
     for root_msg in root_messages:
-        if root_msg.parent_id is None:  # This is the main post
-            transcript_lines.append(f"[{root_msg.author.name} at {root_msg.timestamp}]: {root_msg.text}")
-
-            # Process top-level comments (children of the post)
-            top_level_comments = sorted(children_map.get(root_msg.id, []), key=lambda m: m.timestamp)
-            for top_level_comment in top_level_comments:
-                transcript_lines.append("\n--- Thread Started ---")
-                thread_lines = []
-                traverse_and_format(top_level_comment.id, 0, thread_lines)
-                transcript_lines.extend(thread_lines)
-                transcript_lines.append("--- Thread Ended ---")
-
-        else:  # This is an orphan comment
+        thread_lines = []
+        if root_msg.parent_id is None:
+             # This is a main post, start a new thread
+            transcript_lines.append("\n--- Thread Started ---")
+            traverse_and_format(root_msg.id, 0, thread_lines, image_parts_in_order)
+            transcript_lines.extend(thread_lines)
+            transcript_lines.append("--- Thread Ended ---")
+        else:
+            # This is an orphan comment, treat it as its own thread
             transcript_lines.append("\n--- Thread Started (Orphaned) ---")
-            thread_lines = []
-            traverse_and_format(root_msg.id, 0, thread_lines)
+            traverse_and_format(root_msg.id, 0, thread_lines, image_parts_in_order)
             transcript_lines.extend(thread_lines)
             transcript_lines.append("--- Thread Ended (Orphaned) ---")
 
@@ -326,7 +348,8 @@ def _format_threaded_conversation(messages: List[StandardMessage]) -> List[Dict[
 
     full_text = "Context: Chat History (Local Day)\n" + "\n".join(transcript_lines)
     parts.append({"type": "text", "text": full_text})
-    parts.extend(image_parts_in_order)
+    if is_multimodal:
+        parts.extend(image_parts_in_order)
 
     return [{"role": "user", "content": parts}]
 

@@ -47,8 +47,8 @@
     - `factory.py`: Returns the correct client instance based on the selected backend (`telegram` or `webex`).
     - `telegram_client.py`: Uses Telethon to read chat history and reconstructs threads from reply chains.
     - `webex_client.py`: Uses native thread IDs for simple threading.
-    - `reddit_client.py`: Fetches posts and comment trees, populating a `parent_id` for each comment to represent the nested structure. The `chat_service` is responsible for formatting the final threaded output.
-- **`llm/llm_client.py`**: The `LLMManager` initializes all configured LLM providers (Google AI, LM Studio, etc.), discovers their available models, and provides a unified `call_conversational` method for services to use.
+    - `reddit_client.py`: Fetches posts and comment trees, populating a `parent_id` for each comment to represent the nested structure. It also handles fetching images from direct links, galleries, and inline links. The `chat_service` is responsible for formatting the final threaded output.
+- **`llm/llm_client.py`**: The `LLMManager` initializes all configured LLM providers (Google AI, LM Studio, etc.), discovers their available models, and provides a unified `call_conversational` method for services to use. It also includes an `is_multimodal` check to determine if a model can handle images.
 - **`bot_manager.py`**: Provides methods to read, add, and remove bot configurations from the `config.json` file, ensuring changes are persisted.
 - **Caching Architecture:**
     - **File-based:** Caches historical message data per-day at `cache/<platform>/<user_id>/<chat_id>/<date>.json`.

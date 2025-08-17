@@ -84,7 +84,18 @@
                                 <option value="reddit">Reddit</option>
                             </select>
                         </div>
-                        <div class="form-group">
+
+                        <div id="redditWorkflowGroup" class="form-group" style="display: none;">
+                            <label>1. Select a Workflow:</label>
+                            <div class="radio-group">
+                                <input type="radio" id="workflowSubreddit" name="reddit-workflow" value="subreddit" checked>
+                                <label for="workflowSubreddit">Analyze a Subreddit</label>
+                                <input type="radio" id="workflowUrl" name="reddit-workflow" value="url">
+                                <label for="workflowUrl">Summarize from URL</label>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group" id="chatSelectGroup">
                             <div class="chat-label-group">
                                 <label for="chatSelect">1. Select a Chat:</label>
                                 <a id="refreshChatsLink">Refresh List</a>
@@ -93,21 +104,33 @@
                             <div id="chatLoadingError" class="error-message"></div>
                             <span id="lastUpdatedTime"></span>
                         </div>
-                        <div id="redditPostSelectGroup" class="form-group" style="display: none;">
-                            <label for="redditPostSelect">Select a Post:</label>
-                            <select id="redditPostSelect"></select>
-                            <div id="redditPostError" class="error-message"></div>
+
+                        <div id="redditSubredditGroup" style="display: none;">
+                            <div id="redditPostSelectGroup" class="form-group">
+                                <label for="redditPostSelect">Select a Post:</label>
+                                <select id="redditPostSelect"></select>
+                                <div id="redditPostError" class="error-message"></div>
+                            </div>
                         </div>
+
+                        <div id="redditUrlGroup" class="form-group" style="display: none;">
+                            <label for="redditUrlInput">Paste a Reddit Post URL:</label>
+                            <input type="url" id="redditUrlInput" placeholder="https://www.reddit.com/r/..." style="width: 100%;">
+                            <button id="summarizeUrlButton" type="button" disabled>Summarize from URL</button>
+                        </div>
+
                         <div class="form-group">
                             <label for="modelSelect">2. Select an AI Model:</label>
                             <select id="modelSelect" required disabled></select>
                             <div id="modelError" class="error-message"></div>
                         </div>
-                        <div class="form-group">
+
+                        <div class="form-group" id="dateRangeGroup">
                             <label for="dateRangePicker">3. Select a Date Range:</label>
                             <input type="text" id="dateRangePicker" readonly>
                         </div>
                         <div id="dateError" class="error-message"></div>
+
                         <div class="form-group checkbox-group">
                             <input type="checkbox" id="cacheChatsToggle" checked>
                             <label for="cacheChatsToggle">Enable caching for faster analysis</label>

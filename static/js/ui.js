@@ -58,6 +58,12 @@ export const themeCheckbox = document.getElementById('theme-checkbox');
 export const imageSettings = document.getElementById('imageSettings');
 export const imageProcessingToggle = document.getElementById('imageProcessingToggle');
 export const maxImageSize = document.getElementById('maxImageSize');
+export const redditWorkflowGroup = document.getElementById('redditWorkflowGroup');
+export const redditSubredditGroup = document.getElementById('redditSubredditGroup');
+export const redditUrlGroup = document.getElementById('redditUrlGroup');
+export const workflowSubreddit = document.getElementById('workflowSubreddit');
+export const workflowUrl = document.getElementById('workflowUrl');
+
 
 let choicesInstance = null;
 
@@ -117,28 +123,64 @@ export function clearErrors() {
     if (botManagementError) botManagementError.textContent = '';
 }
 
+export function updateRedditWorkflowUI() {
+    const chatSelectGroup = document.getElementById('chatSelectGroup');
+    const dateRangeGroup = document.getElementById('dateRangeGroup');
+    const redditPostSelectGroup = document.getElementById('redditPostSelectGroup');
+
+    if (appState.activeBackend !== 'reddit') {
+        redditWorkflowGroup.style.display = 'none';
+        redditSubredditGroup.style.display = 'none';
+        redditUrlGroup.style.display = 'none';
+        if (chatSelectGroup) chatSelectGroup.style.display = 'block';
+        if (dateRangeGroup) dateRangeGroup.style.display = 'block';
+        if (redditPostSelectGroup) redditPostSelectGroup.style.display = 'none';
+        return;
+    }
+    
+    redditWorkflowGroup.style.display = 'block';
+    const selectedWorkflow = document.querySelector('input[name="reddit-workflow"]:checked').value;
+
+    if (selectedWorkflow === 'subreddit') {
+        if (chatSelectGroup) chatSelectGroup.style.display = 'block';
+        if (redditSubredditGroup) redditSubredditGroup.style.display = 'block';
+        if (redditUrlGroup) redditUrlGroup.style.display = 'none';
+        if (dateRangeGroup) dateRangeGroup.style.display = 'none';
+    } else { // url
+        if (chatSelectGroup) chatSelectGroup.style.display = 'none';
+        if (redditSubredditGroup) redditSubredditGroup.style.display = 'none';
+        if (redditUrlGroup) redditUrlGroup.style.display = 'block';
+        if (dateRangeGroup) dateRangeGroup.style.display = 'none';
+    }
+    updateStartChatButtonState();
+}
+
+
 export function updateStartChatButtonState() {
     if (!startChatButton) return;
     const datePicker = document.getElementById('dateRangePicker');
     const validDateSelected = datePicker && datePicker._flatpickr && datePicker._flatpickr.selectedDates.length === 2;
-    
+
     let validChatSelected = false;
     if (appState.activeBackend === 'reddit') {
-        const mainSelection = choicesInstance ? choicesInstance.getValue(true) : null;
-        if (mainSelection && !mainSelection.startsWith('sub_')) {
-            validChatSelected = true; // A post was selected directly
-        } else if (mainSelection && mainSelection.startsWith('sub_')) {
-            if (appState.postChoicesInstance && appState.postChoicesInstance.getValue(true)) {
-                validChatSelected = true; // A subreddit and a post were selected
-            }
+        const selectedWorkflow = document.querySelector('input[name="reddit-workflow"]:checked').value;
+        if (selectedWorkflow === 'subreddit') {
+            const subredditSelected = choicesInstance && choicesInstance.getValue(true);
+            const postSelected = appState.postChoicesInstance && appState.postChoicesInstance.getValue(true);
+            validChatSelected = !!(subredditSelected && postSelected);
         }
+        // The summarize button has its own logic, so we don't consider the URL input for the main "Start Chat" button.
     } else {
         validChatSelected = choicesInstance && choicesInstance.getValue(true) != null && choicesInstance.getValue(true) !== "";
     }
 
     const validModelSelected = modelSelect && modelSelect.value && !modelSelect.options[modelSelect.selectedIndex]?.disabled;
-    
-    const coreRequirementsMet = appState.chatListStatus[appState.activeBackend] === 'loaded' && appState.modelsLoaded && validChatSelected && validModelSelected && validDateSelected;
+
+    let coreRequirementsMet = appState.chatListStatus[appState.activeBackend] === 'loaded' && appState.modelsLoaded && validChatSelected && validModelSelected;
+
+    if (appState.activeBackend !== 'reddit') {
+        coreRequirementsMet = coreRequirementsMet && validDateSelected;
+    }
 
     const questionToggled = toggleQuestionCheckbox && toggleQuestionCheckbox.checked;
     const questionText = initialQuestion && initialQuestion.value.trim();
@@ -147,9 +189,13 @@ export function updateStartChatButtonState() {
     startChatButton.disabled = !coreRequirementsMet || !questionRequirementMet;
 
     if (downloadChatButton) {
-        downloadChatButton.disabled = !validChatSelected || !validDateSelected;
+        let downloadDisabled = !validChatSelected;
+        if (appState.activeBackend !== 'reddit') {
+            downloadDisabled = downloadDisabled || !validDateSelected;
+        }
+        downloadChatButton.disabled = downloadDisabled;
     }
-    
+
     if (initialQuestion) {
         initialQuestion.disabled = !coreRequirementsMet;
     }

@@ -36,13 +36,23 @@ The core challenge was mapping Reddit's nested structure to the application's si
 -   **Redirect URI:** The required redirect URI for local development is `http://localhost:8000/api/auth/callback/reddit`.
 -   **File-Based Sessions:** The client was refactored to use persistent, file-based sessions stored in the `sessions/` directory, mirroring the behavior of the Telegram and Webex clients. This resolved a critical bug where sessions were being lost.
 
-## 5. UI/UX: The "Hybrid Dropdown"
+## 5. UI/UX: Workflows and Progressive Disclosure
 
-The final implementation uses a "Hybrid Dropdown" with progressive disclosure.
+The UI has been updated to support two distinct workflows, selectable via radio buttons:
 
--   **Initial View:** A single dropdown is populated with `<optgroup>` sections for "Subscribed," "Popular," and "My Posts."
--   **Progressive Disclosure:** If the user selects a subreddit, a second dropdown is dynamically created and populated with that subreddit's top posts via a call to the new `/api/reddit/posts` endpoint.
--   **Sorting:** The `Choices.js` library was explicitly configured with `shouldSort: false` for all dropdowns to ensure the order of items received from the backend (e.g., "hot" posts) is preserved.
+-   **Analyze a Subreddit:** This workflow uses the "Hybrid Dropdown" with progressive disclosure.
+    -   **Initial View:** A single dropdown is populated with `<optgroup>` sections for "Subscribed," "Popular," and "My Posts."
+    -   **Progressive Disclosure:** If the user selects a subreddit, a second dropdown is dynamically created and populated with that subreddit's top posts via a call to the new `/api/reddit/posts` endpoint.
+-   **Summarize from URL:** This workflow presents a simple input field for the user to paste a Reddit post URL.
+
+### Image Processing
+
+The `RedditClient` now has robust image fetching capabilities:
+
+-   **Direct Links:** It checks the `submission.url` to see if it's a direct link to an image.
+-   **Galleries:** It checks for `submission.is_gallery` and uses `submission.media_metadata` to get the URLs for all images in the gallery.
+-   **Inline Links:** It uses a regex to find image URLs in the text of posts and comments.
+-   All fetched images are base64 encoded and added to the `attachments` list of the corresponding `Message` object.
 
 ## 6. Final Implementation Checklist (As-Built)
 
@@ -56,16 +66,19 @@ The final implementation uses a "Hybrid Dropdown" with progressive disclosure.
 2.  **`docs/overview.md`**: Updated architecture and feature descriptions.
 3.  **`docs/installation.md`**: Added Reddit configuration instructions.
 4.  **`docs/user_guide.md`**: Added Reddit login and usage instructions.
-5.  **`requirements.txt`**: Added `asyncpraw`.
+5.  **`requirements.txt`**: Added `asyncpraw` and `httpx`.
 6.  **`config.json`**: Added a new section for Reddit API credentials.
 7.  **`clients/factory.py`**: Added the `reddit` client to the factory.
-8.  **`clients/base_client.py`**: Temporarily modified and then reverted as part of the design process.
+8.  **`clients/reddit_client.py`**: Implemented comprehensive image fetching (direct links, galleries, inline links).
 9.  **`routers/chat.py`**: Added the `/api/reddit/posts` endpoint and updated `clear-session`.
 10. **`routers/auth.py`**: Added the `/api/auth/callback/reddit` endpoint and updated the unified login logic.
 11. **`services/auth_service.py`**: Made the `get_token_for_user` function backend-specific.
-12. **`services/chat_service.py`**: Updated to pass the `backend` to the auth service.
-13. **`static/index.html`**: Added Reddit to dropdowns and a container for the second post-selection dropdown.
-14. **`static/js/state.js`**: Updated the application state to properly initialize Reddit session data.
-15. **`static/js/auth.js`**: Updated to handle the Reddit login UI and robustly manage sessions for three backends.
-16. **`static/js/chat.js`**: Implemented the progressive disclosure logic and hybrid dropdown population.
-17. **`static/js/ui.js`**: Updated the "Start Chat" button logic to account for the two-step Reddit selection process.
+12. **`services/chat_service.py`**: Updated to handle optional dates for the Reddit backend and to conditionally include image data in the LLM payload.
+13. **`llm/llm_client.py`**: Added an `is_multimodal` check to the `LLMManager`.
+14. **`static/index.html`**: Restructured to include the new radio button group for Reddit workflows.
+15. **`static/style.css`**: Added new CSS rules for the radio button group.
+16. **`static/js/state.js`**: Updated the application state to properly initialize Reddit session data.
+17. **`static/js/auth.js`**: Updated to handle the Reddit login UI and robustly manage sessions for three backends.
+18. **`static/js/chat.js`**: Implemented the progressive disclosure logic and hybrid dropdown population, and added the "Summarize from URL" functionality.
+19. **`static/js/ui.js`**: Refactored the "Start Chat" button logic to handle the new Reddit workflows and fixed several related bugs.
+20. **`static/js/main.js`**: Added event listeners for the new UI elements.

@@ -16,13 +16,22 @@ function initializeRedditPostChoices() {
             itemSelectText: 'Select',
             shouldSort: false,
         });
+        // Add event listener to update button state when a post is selected
+        postSelect.addEventListener('change', updateStartChatButtonState);
     }
 }
 
 async function handleRedditChatSelection(event) {
     const redditPostSelectGroup = document.getElementById('redditPostSelectGroup');
-    if (appState.activeBackend !== 'reddit' || !event.detail.value.startsWith('sub_')) {
-        redditPostSelectGroup.style.display = 'none';
+    const redditUrlGroup = document.getElementById('redditUrlGroup');
+    if (appState.activeBackend !== 'reddit') {
+        if (redditPostSelectGroup) redditPostSelectGroup.style.display = 'none';
+        if (redditUrlGroup) redditUrlGroup.style.display = 'none';
+        return;
+    }
+
+    if (!event.detail.value.startsWith('sub_')) {
+        if (redditPostSelectGroup) redditPostSelectGroup.style.display = 'none';
         return;
     }
 
@@ -45,6 +54,8 @@ async function handleRedditChatSelection(event) {
         }
     } catch (error) {
         document.getElementById('redditPostError').textContent = 'Failed to load posts.';
+    } finally {
+        updateStartChatButtonState();
     }
 }
 
@@ -150,6 +161,44 @@ export async function handleLoadChats() {
     }
 }
 
+document.addEventListener('DOMContentLoaded', () => {
+    const summarizeUrlButton = document.getElementById('summarizeUrlButton');
+    const redditUrlInput = document.getElementById('redditUrlInput');
+
+    if (redditUrlInput) {
+        redditUrlInput.addEventListener('input', () => {
+            const url = redditUrlInput.value;
+            const match = url.match(/comments\/([a-zA-Z0-9]+)/);
+            summarizeUrlButton.disabled = !match;
+        });
+    }
+
+    if (summarizeUrlButton) {
+        summarizeUrlButton.addEventListener('click', () => {
+            const url = redditUrlInput.value;
+            const match = url.match(/comments\/([a-zA-Z0-9]+)/);
+            if (match && match[1]) {
+                const submissionId = match[1];
+                
+                // Clear UI for new conversation
+                appState.conversation = [];
+                chatWindow.innerHTML = '';
+                const welcomeMessage = document.getElementById('welcomeMessage');
+                if (welcomeMessage) welcomeMessage.style.display = 'none';
+                const conversationalChatSection = document.getElementById('conversationalChatSection');
+                if (conversationalChatSection) conversationalChatSection.style.display = 'flex';
+
+                // Clear other selections to avoid confusion
+                getChoicesInstance().setValue([]);
+                if (appState.postChoicesInstance) {
+                    appState.postChoicesInstance.setValue([]);
+                }
+                callChatApi(null, submissionId);
+            }
+        });
+    }
+});
+
 export async function loadModels() {
     appState.modelsLoaded = false;
     updateStartChatButtonState();
@@ -204,7 +253,7 @@ export async function loadModels() {
     }
 }
 
-export async function callChatApi(message = null) {
+export async function callChatApi(message = null, submissionId = null) {
     if (appState.chatRequestController) {
         appState.chatRequestController.abort();
         return;
@@ -234,7 +283,9 @@ export async function callChatApi(message = null) {
         const [provider, modelName] = selectedModel.split('_PROVIDER_SEPARATOR_');
 
         let chatId;
-        if (appState.activeBackend === 'reddit' && appState.postChoicesInstance) {
+        if (submissionId) {
+            chatId = submissionId;
+        } else if (appState.activeBackend === 'reddit' && appState.postChoicesInstance) {
             const mainSelection = getChoicesInstance().getValue(true);
             if (mainSelection && !mainSelection.startsWith('sub_')) {
                 chatId = mainSelection;
@@ -249,8 +300,6 @@ export async function callChatApi(message = null) {
             chatId: chatId,
             provider: provider,
             modelName: modelName,
-            startDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[0]),
-            endDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[1]),
             enableCaching: cacheChatsToggle.checked,
             conversation: appState.conversation,
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,

@@ -62,6 +62,14 @@ class LLMManager:
         """
         return {provider: client.get_available_models() for provider, client in self.clients.items()}
 
+    def is_multimodal(self, provider: str, model_name: str) -> bool:
+        """
+        Checks if a given model is multimodal.
+        """
+        # For now, assume all models are multimodal.
+        # TODO: Implement more sophisticated logic to check model capabilities.
+        return True
+
     async def call_conversational(
         self,
         provider: str,
