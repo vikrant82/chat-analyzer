@@ -38,12 +38,14 @@ The core challenge was mapping Reddit's nested structure to the application's si
 
 ## 5. UI/UX: Workflows and Progressive Disclosure
 
-The UI has been updated to support two distinct workflows, selectable via radio buttons:
+The UI has been updated to support two distinct, streamlined workflows, selectable via radio buttons:
 
--   **Analyze a Subreddit:** This workflow uses the "Hybrid Dropdown" with progressive disclosure.
+-   **Analyze a Subreddit:** This workflow uses a "Hybrid Dropdown" with progressive disclosure.
     -   **Initial View:** A single dropdown is populated with `<optgroup>` sections for "Subscribed," "Popular," and "My Posts."
     -   **Progressive Disclosure:** If the user selects a subreddit, a second dropdown is dynamically created and populated with that subreddit's top posts via a call to the new `/api/reddit/posts` endpoint.
 -   **Summarize from URL:** This workflow presents a simple input field for the user to paste a Reddit post URL.
+
+In both workflows, the analysis is initiated via the single, main "Start Chat" button, which has been refactored to handle the logic for both cases.
 
 ### Image Processing
 

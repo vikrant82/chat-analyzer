@@ -17,7 +17,7 @@ The application features a robust caching system to ensure fast, repeated analys
     -   **Threaded Conversation Support (Webex, Telegram, Reddit)**: Preserves native threading context end-to-end.
         - Webex: Groups by parent/threadId.
         - Telegram: Reconstructs reply-quote chains to deterministically resolve a thread root.
-        - Reddit: Correctly represents deeply nested comment trees with proper indentation. It also supports two distinct workflows: a deep analysis of a post and its comments, and a quick summary from a URL.
+        - Reddit: Correctly represents deeply nested comment trees with proper indentation. It supports two streamlined workflows (deep analysis of a post via subreddit selection, or a quick summary from a URL) controlled via a simple radio button interface.
     -   **Configurable Image Analysis (All Providers)**: Globally enable/disable image processing from the UI and set maximum file sizes.
     -   **Webex & Telegram Bot Support**: Register bots to invoke the analyzer directly from any chat space.
     -   **Real-time Streaming**: View AI responses as they are generated, word-by-word.

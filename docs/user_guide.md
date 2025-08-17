@@ -47,11 +47,11 @@ Below the main controls, you will find a "Recent Chats" list. This feature helps
 ### Platform-Specific Chat Selection & Threading
 
 -   **Telegram & Webex**: The dropdown will show a list of your chats and rooms. The analyzer will automatically reconstruct reply chains to provide accurate conversational context to the AI.
--   **Reddit**: The Reddit backend offers two distinct workflows:
-    -   **Analyze a Subreddit**: This workflow allows you to perform a deep analysis of a specific post and its entire comment tree. The "Select a Chat" dropdown is a "hybrid" list containing your subscribed subreddits, popular posts, and your own posts. To start an analysis, you must always select a specific **post**.
-    -   **Summarize from URL**: This workflow allows you to quickly get a summary of a Reddit post by simply pasting its URL.
+-   **Reddit**: The Reddit backend offers two distinct, streamlined workflows, which you can switch between using the "Select a Workflow" radio buttons:
+    -   **Analyze a Subreddit**: This workflow allows you to perform a deep analysis of a specific post and its entire comment tree. First, select a subreddit from the "Select a Chat" dropdown (which contains your subscribed subreddits, popular posts, and your own posts). Then, select a specific post from the "Select a Post" dropdown that appears.
+    -   **Summarize from URL**: This workflow allows you to quickly get a summary of any Reddit post. Simply paste the post's URL into the "Paste a Reddit Post URL" text box.
     
-    The analyzer will then fetch the post and its entire comment tree, correctly indenting all nested replies to preserve the thread structure. It will also fetch any images from the post or comments if image processing is enabled.
+    In both workflows, the analysis is started by clicking the main **"Start Chat"** button. The analyzer will then fetch the post and its entire comment tree, correctly indenting all nested replies to preserve the thread structure. It will also fetch any images from the post or comments if image processing is enabled.
 
 ## Using the Bots
 

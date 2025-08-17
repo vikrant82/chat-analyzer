@@ -158,7 +158,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 dateError.textContent = 'Date selection not available.';
                 return;
             }
-            if (datePickerInstance.selectedDates.length !== 2) {
+            if (datePickerInstance.selectedDates.length !== 2 && !(appState.activeBackend === 'reddit' && workflowUrl.checked)) {
                 dateError.textContent = 'Please select a valid date range.';
                 return;
             }
@@ -180,10 +180,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 chatWindow.appendChild(userMessageElem);
                 initialQuestion.value = '';
             }
-            const choices = getChoicesInstance();
-            const selectedChat = choices ? choices.getValue() : null;
 
-            if (selectedChat && selectedChat.value) {
+            let selectedChat, chatId;
+            if (appState.activeBackend === 'reddit') {
+                if (workflowUrl.checked) {
+                    const redditUrlInput = document.getElementById('redditUrlInput');
+                    const redditUrl = redditUrlInput ? redditUrlInput.value.trim() : '';
+                    if (!redditUrl) {
+                        dateError.textContent = 'Please enter a valid Reddit Post URL.';
+                        return;
+                    }
+                    selectedChat = { value: redditUrl, label: `URL: ${redditUrl}` };
+                    chatId = redditUrl;
+                } else { // Subreddit workflow
+                    selectedChat = getChoicesInstance().getValue();
+                    chatId = appState.postChoicesInstance ? appState.postChoicesInstance.getValue(true) : null;
+                }
+            } else {
+                selectedChat = getChoicesInstance().getValue();
+                chatId = selectedChat ? selectedChat.value : null;
+            }
+
+            if ((selectedChat || chatId) && (chatId || selectedChat.value)) {
+                if (!chatId) {
+                    chatId = selectedChat.value;
+                }
+                if (!selectedChat) {
+                    selectedChat = { value: chatId, label: `ID: ${chatId}` };
+                }
                 const sessionSnapshot = {
                     backend: appState.activeBackend,
                     chat: {
@@ -201,6 +225,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     question: initialQuestion.value.trim()
                 };
                 addChatToRecents(sessionSnapshot);
+            } else {
+                dateError.textContent = 'Please select a chat to analyze.';
+                return;
             }
 
             const chatColumn = document.getElementById('conversationalChatSection');
@@ -213,7 +240,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (initialQuestionGroup) {
                     initialQuestionGroup.style.display = 'none';
                 }
-                callChatApi(question);
+                callChatApi(question, chatId);
             }
         });
     }
@@ -233,7 +260,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 chatWindow.appendChild(userMessageElem);
                 chatInput.value = '';
                 chatWindow.scrollTop = chatWindow.scrollHeight;
-                callChatApi(message);
+                callChatApi(message, null); // No chatId needed for follow-up
             }
         });
         chatInput.addEventListener('keypress', (e) => {
@@ -333,6 +360,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (initialQuestion) {
         initialQuestion.addEventListener('input', updateStartChatButtonState);
+    }
+
+    const redditUrlInput = document.getElementById('redditUrlInput');
+    if (redditUrlInput) {
+        redditUrlInput.addEventListener('input', updateStartChatButtonState);
     }
 
     if (workflowSubreddit) workflowSubreddit.addEventListener('change', updateRedditWorkflowUI);

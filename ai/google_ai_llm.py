@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import aiohttp
 from typing import List, Dict, Any, AsyncGenerator, Optional
 
 from google.generativeai.client import configure
@@ -59,6 +60,8 @@ class GoogleAILLM(LLMClient):
             return
 
         logger.info(f"Streaming conversational response from Google AI ({model_name})...")
+        
+        model = None
         try:
             history = []
             system_instruction = None
@@ -135,3 +138,11 @@ class GoogleAILLM(LLMClient):
         except Exception as e:
             logger.error(f"Error calling Google AI streaming API ({model_name}): {e}", exc_info=True)
             yield f"\n\n**Error:** Failed to get a streaming response from the Google AI service. Details: {str(e)}"
+        finally:
+            # The google-generativeai library has a known issue where it doesn't close
+            # the underlying aiohttp session. This is a workaround to find and close it.
+            if model and hasattr(model, '_client') and hasattr(model._client, '_session'):
+                session = model._client._session
+                if isinstance(session, aiohttp.ClientSession) and not session.closed:
+                    await session.close()
+                    logger.info("Closed aiohttp session for Google AI client.")

@@ -168,8 +168,12 @@ export function updateStartChatButtonState() {
             const subredditSelected = choicesInstance && choicesInstance.getValue(true);
             const postSelected = appState.postChoicesInstance && appState.postChoicesInstance.getValue(true);
             validChatSelected = !!(subredditSelected && postSelected);
+        } else { // url workflow
+            const redditUrlInput = document.getElementById('redditUrlInput');
+            const url = redditUrlInput ? redditUrlInput.value : '';
+            const match = url.match(/comments\/([a-zA-Z0-9]+)/);
+            validChatSelected = !!match;
         }
-        // The summarize button has its own logic, so we don't consider the URL input for the main "Start Chat" button.
     } else {
         validChatSelected = choicesInstance && choicesInstance.getValue(true) != null && choicesInstance.getValue(true) !== "";
     }
@@ -178,6 +182,7 @@ export function updateStartChatButtonState() {
 
     let coreRequirementsMet = appState.chatListStatus[appState.activeBackend] === 'loaded' && appState.modelsLoaded && validChatSelected && validModelSelected;
 
+    // Date selection is not required for any Reddit workflow now
     if (appState.activeBackend !== 'reddit') {
         coreRequirementsMet = coreRequirementsMet && validDateSelected;
     }

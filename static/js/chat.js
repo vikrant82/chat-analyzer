@@ -162,41 +162,7 @@ export async function handleLoadChats() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    const summarizeUrlButton = document.getElementById('summarizeUrlButton');
-    const redditUrlInput = document.getElementById('redditUrlInput');
-
-    if (redditUrlInput) {
-        redditUrlInput.addEventListener('input', () => {
-            const url = redditUrlInput.value;
-            const match = url.match(/comments\/([a-zA-Z0-9]+)/);
-            summarizeUrlButton.disabled = !match;
-        });
-    }
-
-    if (summarizeUrlButton) {
-        summarizeUrlButton.addEventListener('click', () => {
-            const url = redditUrlInput.value;
-            const match = url.match(/comments\/([a-zA-Z0-9]+)/);
-            if (match && match[1]) {
-                const submissionId = match[1];
-                
-                // Clear UI for new conversation
-                appState.conversation = [];
-                chatWindow.innerHTML = '';
-                const welcomeMessage = document.getElementById('welcomeMessage');
-                if (welcomeMessage) welcomeMessage.style.display = 'none';
-                const conversationalChatSection = document.getElementById('conversationalChatSection');
-                if (conversationalChatSection) conversationalChatSection.style.display = 'flex';
-
-                // Clear other selections to avoid confusion
-                getChoicesInstance().setValue([]);
-                if (appState.postChoicesInstance) {
-                    appState.postChoicesInstance.setValue([]);
-                }
-                callChatApi(null, submissionId);
-            }
-        });
-    }
+    // This logic is now handled by the main start chat button
 });
 
 export async function loadModels() {
@@ -253,7 +219,7 @@ export async function loadModels() {
     }
 }
 
-export async function callChatApi(message = null, submissionId = null) {
+export async function callChatApi(message = null, chatId = null) {
     if (appState.chatRequestController) {
         appState.chatRequestController.abort();
         return;
@@ -282,24 +248,13 @@ export async function callChatApi(message = null, submissionId = null) {
         }
         const [provider, modelName] = selectedModel.split('_PROVIDER_SEPARATOR_');
 
-        let chatId;
-        if (submissionId) {
-            chatId = submissionId;
-        } else if (appState.activeBackend === 'reddit' && appState.postChoicesInstance) {
-            const mainSelection = getChoicesInstance().getValue(true);
-            if (mainSelection && !mainSelection.startsWith('sub_')) {
-                chatId = mainSelection;
-            } else {
-                chatId = appState.postChoicesInstance.getValue(true);
-            }
-        } else {
-            chatId = getChoicesInstance().getValue(true);
-        }
-
+        const datePicker = document.getElementById('dateRangePicker')._flatpickr;
         const requestBody = {
             chatId: chatId,
             provider: provider,
             modelName: modelName,
+            startDate: datePicker.selectedDates[0] ? formatDate(datePicker.selectedDates[0]) : null,
+            endDate: datePicker.selectedDates[1] ? formatDate(datePicker.selectedDates[1]) : null,
             enableCaching: cacheChatsToggle.checked,
             conversation: appState.conversation,
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,

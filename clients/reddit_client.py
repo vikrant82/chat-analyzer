@@ -161,6 +161,17 @@ class RedditClient(ChatClient):
         if not await self.is_session_valid(user_identifier):
             raise Exception("User session is not valid.")
 
+        # Check if chat_id is a URL and extract the submission ID
+        submission_id = chat_id
+        if "reddit.com" in chat_id:
+            # It's a URL, so we must extract the ID
+            url_match = re.search(r'comments/([a-zA-Z0-9]+)', chat_id)
+            if url_match:
+                submission_id = url_match.group(1)
+            else:
+                # If it looks like a URL but we can't parse it, raise an error
+                raise ValueError("Invalid Reddit URL format. Could not extract submission ID.")
+
         session_file = get_reddit_session_file(user_identifier)
         with open(session_file, 'r') as f:
             session_data = json.load(f)
@@ -172,11 +183,12 @@ class RedditClient(ChatClient):
             user_agent=self.reddit.config.user_agent,
         )
 
-        submission = await reddit_user_instance.submission(id=chat_id)
+        submission = await reddit_user_instance.submission(id=submission_id)
         messages: List[Message] = []
 
         # Set comment sort before fetching
         submission.comment_sort = "best"
+        await submission.load()
         
         # 1. Add the post itself as the first message
         post_author = submission.author
