@@ -14,6 +14,7 @@ import {
 import { handleLogin, handleVerify, handleFullLogout, checkSessionOnLoad, handleBackendChange, switchService } from './auth.js';
 import { handleLoadChats, callChatApi, handleDownloadChat, loadModels } from './chat.js';
 import { handleRegisterBot, loadBots } from './bot.js';
+import { getPostChoicesInstance } from './reddit.js';
 
 const RECENT_CHATS_KEY = 'chat_analyzer_recent_chats';
 const MAX_RECENT_CHATS = 10;
@@ -84,6 +85,51 @@ function addChatToRecents(session) {
     }
     localStorage.setItem(RECENT_CHATS_KEY, JSON.stringify(recentChats));
     loadRecentChats();
+}
+
+function getChatParameters() {
+    const datePickerEl = document.getElementById('dateRangePicker');
+    const datePickerInstance = datePickerEl ? datePickerEl._flatpickr : null;
+    let selectedChat, chatId;
+
+    if (appState.activeBackend === 'reddit') {
+        if (workflowUrl.checked) {
+            const redditUrlInput = document.getElementById('redditUrlInput');
+            const redditUrl = redditUrlInput ? redditUrlInput.value.trim() : '';
+            if (!redditUrl) {
+                dateError.textContent = 'Please enter a valid Reddit Post URL.';
+                return null;
+            }
+            selectedChat = { value: redditUrl, label: `URL: ${redditUrl}` };
+            chatId = redditUrl;
+        } else { // Subreddit workflow
+            selectedChat = getChoicesInstance().getValue();
+            const postChoices = getPostChoicesInstance();
+            chatId = postChoices ? postChoices.getValue(true) : null;
+        }
+    } else {
+        selectedChat = getChoicesInstance().getValue();
+        chatId = selectedChat ? selectedChat.value : null;
+    }
+
+    if (!chatId && selectedChat) {
+        chatId = selectedChat.value;
+    }
+    
+    if (!selectedChat && chatId) {
+        selectedChat = { value: chatId, label: `ID: ${chatId}` };
+    }
+
+    if (!chatId) {
+        dateError.textContent = 'Please select a chat to analyze.';
+        return null;
+    }
+
+    return {
+        chatId,
+        selectedChat,
+        datePickerInstance
+    };
 }
 
 function showSectionWithLogic(sectionName) {
@@ -163,6 +209,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             dateError.textContent = '';
+            
+            const params = getChatParameters();
+            if (!params) {
+                return;
+            }
+            const { chatId, selectedChat } = params;
+
             closeMobileMenu();
             if (appState.conversation.length > 0) {
                 if (!confirm("You have an ongoing conversation. Starting a new chat will clear the current conversation. Continue?")) {
@@ -181,54 +234,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 initialQuestion.value = '';
             }
 
-            let selectedChat, chatId;
-            if (appState.activeBackend === 'reddit') {
-                if (workflowUrl.checked) {
-                    const redditUrlInput = document.getElementById('redditUrlInput');
-                    const redditUrl = redditUrlInput ? redditUrlInput.value.trim() : '';
-                    if (!redditUrl) {
-                        dateError.textContent = 'Please enter a valid Reddit Post URL.';
-                        return;
-                    }
-                    selectedChat = { value: redditUrl, label: `URL: ${redditUrl}` };
-                    chatId = redditUrl;
-                } else { // Subreddit workflow
-                    selectedChat = getChoicesInstance().getValue();
-                    chatId = appState.postChoicesInstance ? appState.postChoicesInstance.getValue(true) : null;
-                }
-            } else {
-                selectedChat = getChoicesInstance().getValue();
-                chatId = selectedChat ? selectedChat.value : null;
-            }
-
-            if ((selectedChat || chatId) && (chatId || selectedChat.value)) {
-                if (!chatId) {
-                    chatId = selectedChat.value;
-                }
-                if (!selectedChat) {
-                    selectedChat = { value: chatId, label: `ID: ${chatId}` };
-                }
-                const sessionSnapshot = {
-                    backend: appState.activeBackend,
-                    chat: {
-                        value: selectedChat.value,
-                        label: selectedChat.label
-                    },
-                    model: modelSelect.value,
-                    startDate: datePickerInstance.selectedDates[0] ? datePickerInstance.selectedDates[0].toISOString() : null,
-                    endDate: datePickerInstance.selectedDates[1] ? datePickerInstance.selectedDates[1].toISOString() : null,
-                    caching: cacheChatsToggle.checked,
-                    imageProcessing: {
-                        enabled: imageProcessingToggle.checked,
-                        maxSizeMb: maxImageSize.value
-                    },
-                    question: initialQuestion.value.trim()
-                };
-                addChatToRecents(sessionSnapshot);
-            } else {
-                dateError.textContent = 'Please select a chat to analyze.';
-                return;
-            }
+            const sessionSnapshot = {
+                backend: appState.activeBackend,
+                chat: {
+                    value: selectedChat.value,
+                    label: selectedChat.label
+                },
+                model: modelSelect.value,
+                startDate: datePickerInstance.selectedDates[0] ? datePickerInstance.selectedDates[0].toISOString() : null,
+                endDate: datePickerInstance.selectedDates[1] ? datePickerInstance.selectedDates[1].toISOString() : null,
+                caching: cacheChatsToggle.checked,
+                imageProcessing: {
+                    enabled: imageProcessingToggle.checked,
+                    maxSizeMb: maxImageSize.value
+                },
+                question: initialQuestion.value.trim()
+            };
+            addChatToRecents(sessionSnapshot);
 
             const chatColumn = document.getElementById('conversationalChatSection');
             if (welcomeMessage) {
@@ -490,21 +512,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (themeCheckbox) {
-        themeCheckbox.addEventListener('change', () => {
-            if (themeCheckbox.checked) {
+        const flatpickrTheme = document.getElementById('flatpickr-theme');
+
+        const applyTheme = (isDark) => {
+            if (isDark) {
                 document.body.classList.add('dark-theme');
+                if (flatpickrTheme) flatpickrTheme.disabled = false;
                 localStorage.setItem('theme', 'dark-theme');
             } else {
                 document.body.classList.remove('dark-theme');
+                if (flatpickrTheme) flatpickrTheme.disabled = true;
                 localStorage.setItem('theme', 'light-theme');
             }
+        };
+
+        themeCheckbox.addEventListener('change', () => {
+            applyTheme(themeCheckbox.checked);
         });
 
         // Apply saved theme on load
         const savedTheme = localStorage.getItem('theme');
-        if (savedTheme === 'dark-theme') {
-            document.body.classList.add('dark-theme');
-            themeCheckbox.checked = true;
-        }
+        const isDark = savedTheme === 'dark-theme';
+        themeCheckbox.checked = isDark;
+        applyTheme(isDark);
     }
 });

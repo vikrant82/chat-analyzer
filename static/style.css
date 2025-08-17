@@ -407,6 +407,7 @@ input:checked + .slider:before {
     color: var(--subtle-text-color);
 }
 
+/* --- Recent Chats --- */
 #recentChats {
     margin-top: 2rem;
 }
@@ -437,17 +438,17 @@ input:checked + .slider:before {
     transition: background-color 0.2s;
 }
 
+#recentChatsList a:hover {
+    background-color: var(--primary-color);
+    color: var(--container-bg);
+}
+
 button.go-button {
     padding: 0.5rem 1rem;
     width: auto;
     font-size: 0.9rem;
     text-transform: none;
     letter-spacing: 0;
-}
-
-#recentChatsList a:hover {
-    background-color: var(--primary-color);
-    color: var(--container-bg);
 }
 
 #conversationalChatSection {

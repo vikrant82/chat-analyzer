@@ -7,57 +7,7 @@ import {
     cacheChatsToggle, formatDate
 } from './ui.js';
 import { handleFullLogout } from './auth.js';
-
-function initializeRedditPostChoices() {
-    const postSelect = document.getElementById('redditPostSelect');
-    if (postSelect && !appState.postChoicesInstance) {
-        appState.postChoicesInstance = new Choices(postSelect, {
-            searchEnabled: true,
-            itemSelectText: 'Select',
-            shouldSort: false,
-        });
-        // Add event listener to update button state when a post is selected
-        postSelect.addEventListener('change', updateStartChatButtonState);
-    }
-}
-
-async function handleRedditChatSelection(event) {
-    const redditPostSelectGroup = document.getElementById('redditPostSelectGroup');
-    const redditUrlGroup = document.getElementById('redditUrlGroup');
-    if (appState.activeBackend !== 'reddit') {
-        if (redditPostSelectGroup) redditPostSelectGroup.style.display = 'none';
-        if (redditUrlGroup) redditUrlGroup.style.display = 'none';
-        return;
-    }
-
-    if (!event.detail.value.startsWith('sub_')) {
-        if (redditPostSelectGroup) redditPostSelectGroup.style.display = 'none';
-        return;
-    }
-
-    const subreddit = event.detail.value.replace('sub_', '');
-    redditPostSelectGroup.style.display = 'block';
-    appState.postChoicesInstance.clearStore();
-    appState.postChoicesInstance.setChoices([{ value: '', label: 'Loading posts...', disabled: true }], 'value', 'label', true);
-
-    try {
-        const url = `/api/reddit/posts?subreddit=${subreddit}`;
-        const posts = await makeApiRequest(url, { method: 'GET' }, config.timeouts.loadChats, null, 'chats');
-        if (posts && posts.length > 0) {
-            const postOptions = posts.map(post => ({
-                value: post.id,
-                label: post.title
-            }));
-            appState.postChoicesInstance.setChoices(postOptions, 'value', 'label', false);
-        } else {
-            appState.postChoicesInstance.setChoices([{ value: '', label: 'No posts found.', disabled: true }], 'value', 'label', true);
-        }
-    } catch (error) {
-        document.getElementById('redditPostError').textContent = 'Failed to load posts.';
-    } finally {
-        updateStartChatButtonState();
-    }
-}
+import { initializeRedditPostChoices, getPostChoicesInstance, handleRedditChatSelection } from './reddit.js';
 
 export async function handleLoadChats() {
     const backend = appState.activeBackend;
@@ -65,16 +15,21 @@ export async function handleLoadChats() {
     const chatSelect = document.getElementById('chatSelect');
     
     // Remove previous listener to avoid duplicates
-    if (appState.redditListener) {
-        chatSelect.removeEventListener('change', appState.redditListener);
+    const redditListener = appState.redditListener;
+    if (redditListener) {
+        chatSelect.removeEventListener('change', redditListener);
     }
 
     if (backend === 'reddit') {
         initializeRedditPostChoices();
-        appState.redditListener = handleRedditChatSelection;
-        chatSelect.addEventListener('change', appState.redditListener);
+        const newRedditListener = handleRedditChatSelection;
+        chatSelect.addEventListener('change', newRedditListener);
+        appState.redditListener = newRedditListener;
     } else {
-        document.getElementById('redditPostSelectGroup').style.display = 'none';
+        const redditPostSelectGroup = document.getElementById('redditPostSelectGroup');
+        if (redditPostSelectGroup) {
+            redditPostSelectGroup.style.display = 'none';
+        }
     }
     if (!backend || !choicesInstance || !appState.sessionTokens[backend]) {
         if (chatLoadingError) chatLoadingError.textContent = "No active session.";

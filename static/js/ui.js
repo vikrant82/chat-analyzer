@@ -1,4 +1,5 @@
 import { appState } from './state.js';
+import { getPostChoicesInstance } from './reddit.js';
 
 // --- DOM Elements ---
 export const loginSection = document.getElementById('loginSection');
@@ -166,7 +167,8 @@ export function updateStartChatButtonState() {
         const selectedWorkflow = document.querySelector('input[name="reddit-workflow"]:checked').value;
         if (selectedWorkflow === 'subreddit') {
             const subredditSelected = choicesInstance && choicesInstance.getValue(true);
-            const postSelected = appState.postChoicesInstance && appState.postChoicesInstance.getValue(true);
+            const postChoices = getPostChoicesInstance();
+            const postSelected = postChoices && postChoices.getValue(true);
             validChatSelected = !!(subredditSelected && postSelected);
         } else { // url workflow
             const redditUrlInput = document.getElementById('redditUrlInput');
