@@ -412,6 +412,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const redditUrlInput = document.getElementById('redditUrlInput');
     if (redditUrlInput) {
         redditUrlInput.addEventListener('input', updateStartChatButtonState);
+        redditUrlInput.addEventListener('paste', updateStartChatButtonState);
     }
 
     if (workflowSubreddit) workflowSubreddit.addEventListener('change', updateRedditWorkflowUI);

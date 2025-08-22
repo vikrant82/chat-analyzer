@@ -160,7 +160,8 @@ export function updateRedditWorkflowUI() {
 export function updateStartChatButtonState() {
     if (!startChatButton) return;
     const datePicker = document.getElementById('dateRangePicker');
-    const validDateSelected = datePicker && datePicker._flatpickr && datePicker._flatpickr.selectedDates.length === 2;
+    // More robust check for the date picker instance and selected dates
+    const validDateSelected = datePicker && datePicker._flatpickr && datePicker._flatpickr.selectedDates && datePicker._flatpickr.selectedDates.length === 2;
 
     let validChatSelected = false;
     if (appState.activeBackend === 'reddit') {
@@ -172,9 +173,9 @@ export function updateStartChatButtonState() {
             validChatSelected = !!(subredditSelected && postSelected);
         } else { // url workflow
             const redditUrlInput = document.getElementById('redditUrlInput');
-            const url = redditUrlInput ? redditUrlInput.value : '';
-            const match = url.match(/comments\/([a-zA-Z0-9]+)/);
-            validChatSelected = !!match;
+            const url = redditUrlInput ? redditUrlInput.value.trim() : '';
+            // Simpler, more robust check for a valid-looking Reddit post URL
+            validChatSelected = url.includes('comments/');
         }
     } else {
         validChatSelected = choicesInstance && choicesInstance.getValue(true) != null && choicesInstance.getValue(true) !== "";
