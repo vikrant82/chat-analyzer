@@ -194,10 +194,6 @@ def _format_flat_conversation(messages: List[StandardMessage], is_multimodal: bo
                 )
                 caption_text = f"[Image #{image_seq}] author={msg.author.name}; at={msg.timestamp}; thread={'yes' if msg.thread_id else 'no'}"
                 image_parts_in_order.append({
-                    "type": "text",
-                    "text": caption_text
-                })
-                image_parts_in_order.append({
                     "type": "image",
                     "id": f"img-{image_seq}",
                     "meta": {

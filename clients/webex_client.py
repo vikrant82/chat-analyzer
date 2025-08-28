@@ -214,7 +214,18 @@ class WebexClient(ChatClient):
 
             # Group by LOCAL day
             grouped_by_day_local: Dict[datetime, List[Message]] = {}
+            
+            # --- Optimization ---
+            # Get all message IDs that were successfully loaded from the daily caches.
+            # We will use this to avoid re-processing and re-downloading attachments
+            # for messages we already have.
+            existing_ids_from_cache = {m.id for m in all_messages}
+
             for msg_raw in all_fetched_raw_messages:
+                # If this message was already loaded from a daily cache, skip it.
+                if msg_raw.get('id') in existing_ids_from_cache:
+                    continue
+
                 # A message must have text OR files to be considered
                 if not msg_raw.get('text') and not msg_raw.get('files'):
                     continue

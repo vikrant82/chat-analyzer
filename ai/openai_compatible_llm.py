@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from typing import List, Dict, Any, AsyncGenerator, Optional
 
 import httpx
@@ -8,6 +9,8 @@ from .base_llm import LLMClient, LLMError
 from .prompts import UNIFIED_SYSTEM_PROMPT, GENERAL_AI_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
+
+SUPPORTED_OPENAI_MIMETYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 class OpenAICompatibleLLM(LLMClient):
     def __init__(self, config: Dict[str, Any]):
@@ -162,12 +165,20 @@ class OpenAICompatibleLLM(LLMClient):
                     elif part.get("type") == "image":
                         source = part.get("source", {})
                         media_type = source.get("media_type")
+                        
+                        # Skip attachments that are not supported image types
+                        if media_type not in SUPPORTED_OPENAI_MIMETYPES:
+                            logger.warning(f"Skipping unsupported media type for OpenAI-compatible LLM: {media_type}")
+                            continue
+
                         data = source.get("data")
                         if media_type and data:
+                            # Clean the base64 string of any whitespace characters
+                            cleaned_data = re.sub(r'\s+', '', data)
                             openai_parts.append({
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:{media_type};base64,{data}"
+                                    "url": f"data:{media_type};base64,{cleaned_data}"
                                 }
                             })
                 if openai_parts:
