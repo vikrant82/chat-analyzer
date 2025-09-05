@@ -494,6 +494,38 @@ button.go-button {
     border-bottom-left-radius: 4px;
 }
 
+.ai-message {
+    position: relative;
+}
+
+.regenerate-button {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    background-color: var(--primary-color) !important;
+    color: var(--container-bg) !important;
+    border: none !important;
+    border-radius: 4px !important;
+    padding: 4px 8px !important;
+    font-size: 0.8rem !important;
+    cursor: pointer !important;
+    opacity: 0 !important;
+    transition: opacity 0.2s ease-in-out !important;
+    z-index: 10 !important;
+    width: auto !important;
+    font-weight: normal !important;
+    text-transform: none !important;
+    letter-spacing: normal !important;
+}
+
+.ai-message:last-child:hover .regenerate-button {
+    opacity: 1 !important;
+}
+
+.regenerate-button:hover {
+    filter: brightness(1.1);
+}
+
 .chat-input-area {
     display: flex;
     gap: 10px;

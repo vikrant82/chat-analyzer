@@ -179,6 +179,10 @@ export async function callChatApi(message = null, chatId = null) {
         appState.chatRequestController.abort();
         return;
     }
+    
+    if (chatId) {
+        appState.currentChatId = chatId;
+    }
 
     if (!appState.sessionTokens[appState.activeBackend]) {
         alert("Session expired. Please log in again.");
@@ -186,9 +190,23 @@ export async function callChatApi(message = null, chatId = null) {
         return;
     }
 
+    const lastAiMessage = chatWindow.querySelector('.chat-message.ai-message:last-child');
+    if (lastAiMessage) {
+        const existingButton = lastAiMessage.querySelector('.regenerate-button');
+        if (existingButton) {
+            existingButton.remove();
+        }
+    }
+
+
     const aiMessageElem = document.createElement('div');
     aiMessageElem.classList.add('chat-message', 'ai-message');
-    aiMessageElem.innerHTML = '<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
+
+    const messageContent = document.createElement('div');
+    messageContent.classList.add('message-content');
+    messageContent.innerHTML = '<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
+    aiMessageElem.appendChild(messageContent);
+    
     chatWindow.appendChild(aiMessageElem);
     chatWindow.scrollTop = chatWindow.scrollHeight;
 
@@ -243,7 +261,7 @@ export async function callChatApi(message = null, chatId = null) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         
-        aiMessageElem.innerHTML = ''; 
+        messageContent.innerHTML = '';
 
         let buffer = '';
         while (true) {
@@ -258,29 +276,38 @@ export async function callChatApi(message = null, chatId = null) {
                 if (line.startsWith('data: ')) {
                     const data = JSON.parse(line.substring(6));
                     if (data.type === 'status') {
-                        aiMessageElem.innerHTML = `<p><em>${data.message}</em></p>`;
+                        messageContent.innerHTML = `<p><em>${data.message}</em></p>`;
                     } else if (data.type === 'content') {
                         fullResponseText += data.chunk;
-                        aiMessageElem.innerHTML = marked.parse(fullResponseText, { breaks: true, gfm: true });
+                        messageContent.innerHTML = marked.parse(fullResponseText, { breaks: true, gfm: true });
                     } else if (data.type === 'error') {
                         fullResponseText = `<p style="color: red;"><strong>Error:</strong> ${data.message}</p>`;
-                        aiMessageElem.innerHTML = fullResponseText;
-                        break; 
+                        messageContent.innerHTML = fullResponseText;
+                        break;
                     }
                     chatWindow.scrollTop = chatWindow.scrollHeight;
                 }
+                
             }
         }
         
         if (fullResponseText) {
             appState.conversation.push({ role: 'model', content: fullResponseText });
+            
+            // Add the regenerate button now that the stream is complete
+            const regenerateButton = document.createElement('button');
+            regenerateButton.classList.add('regenerate-button');
+            regenerateButton.textContent = 'Regenerate';
+            regenerateButton.addEventListener('click', () => regenerateLastMessage());
+            aiMessageElem.appendChild(regenerateButton);
+
         }
 
     } catch (error) {
         if (error.name !== 'AbortError') {
-            aiMessageElem.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${error.message}</p>`;
+            aiMessageElem.querySelector('.message-content').innerHTML = `<p style="color: red;"><strong>Error:</strong> ${error.message}</p>`;
         } else {
-            if (aiMessageElem.innerHTML.trim() === '') {
+            if (aiMessageElem.querySelector('.message-content').innerHTML.trim() === '') {
                  aiMessageElem.remove();
             }
         }
@@ -353,5 +380,32 @@ export async function handleDownloadChat() {
         alert(error.message);
     } finally {
         setLoadingState(downloadChatButton, false);
+    }
+}
+
+export async function regenerateLastMessage() {
+    // Remove the last AI message from the chat window
+    const lastAiMessage = chatWindow.querySelector('.chat-message.ai-message:last-child');
+    if (lastAiMessage) {
+        lastAiMessage.remove();
+    }
+    
+    // Remove the last AI message from the conversation array
+    if (appState.conversation.length > 0 && appState.conversation[appState.conversation.length - 1].role === 'model') {
+        appState.conversation.pop();
+    }
+    
+    // Find the last user message
+    let lastUserMessage = null;
+    for (let i = appState.conversation.length - 1; i >= 0; i--) {
+        if (appState.conversation[i].role === 'user') {
+            lastUserMessage = appState.conversation[i].content;
+            break;
+        }
+    }
+    
+    // Call the chat API with the last user message
+    if (lastUserMessage) {
+        await callChatApi(lastUserMessage, appState.currentChatId);
     }
 }
