@@ -293,6 +293,7 @@ export async function callChatApi(message = null, chatId = null) {
         
         if (fullResponseText) {
             appState.conversation.push({ role: 'model', content: fullResponseText });
+            aiMessageElem.dataset.markdown = fullResponseText;
             
             // Add the regenerate button now that the stream is complete
             const regenerateButton = document.createElement('button');
@@ -301,6 +302,20 @@ export async function callChatApi(message = null, chatId = null) {
             regenerateButton.addEventListener('click', () => regenerateLastMessage());
             aiMessageElem.appendChild(regenerateButton);
 
+            const copyButton = document.createElement('button');
+            copyButton.classList.add('copy-button');
+            copyButton.textContent = 'Copy';
+            copyButton.addEventListener('click', (e) => {
+                const messageElement = e.target.closest('.ai-message');
+                const markdownText = messageElement.dataset.markdown;
+                navigator.clipboard.writeText(markdownText).then(() => {
+                    copyButton.textContent = 'Copied!';
+                    setTimeout(() => {
+                        copyButton.textContent = 'Copy';
+                    }, 2000);
+                });
+            });
+            aiMessageElem.appendChild(copyButton);
         }
 
     } catch (error) {
