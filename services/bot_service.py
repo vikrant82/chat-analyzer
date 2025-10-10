@@ -120,8 +120,6 @@ async def _process_webex_bot_command(bot_client: Any, webex_client: Any, active_
             bot_client.post_message(room_id=room_id, text="No messages found in the specified date range.")
             return
 
-        formatted_messages_structured = _format_messages_for_llm(messages_list)
-
         if not llm_manager:
             raise Exception("LLMManager not initialized.")
         
@@ -131,6 +129,9 @@ async def _process_webex_bot_command(bot_client: Any, webex_client: Any, active_
         model_name = llm_client.get_default_model()
         if not model_name:
             raise Exception("No default AI model configured for the bot.")
+
+        is_multimodal = llm_manager.is_multimodal(llm_provider, model_name)
+        formatted_messages_structured = _format_messages_for_llm(messages_list, is_multimodal)
 
         conversation_history = [{"role": "user", "content": query}]
         stream = _normalize_stream(
@@ -214,8 +215,6 @@ async def _handle_summarizer_mode(bot_client: Any, telegram_client: Any, active_
             await bot_client.send_message(user_chat_id, "No messages found in the specified date range.")
             return
 
-        formatted_messages_structured = _format_messages_for_llm(messages_list)
-
         if not llm_manager:
             raise Exception("LLMManager not initialized.")
             
@@ -224,6 +223,9 @@ async def _handle_summarizer_mode(bot_client: Any, telegram_client: Any, active_
         model_name = llm_client.get_default_model()
         if not model_name:
             raise Exception("No default AI model configured for the bot.")
+
+        is_multimodal = llm_manager.is_multimodal(llm_provider, model_name)
+        formatted_messages_structured = _format_messages_for_llm(messages_list, is_multimodal)
 
         conversation_history = [{"role": "user", "content": query}]
         stream = _normalize_stream(

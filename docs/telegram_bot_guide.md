@@ -50,7 +50,8 @@ You can switch the bot into a general-purpose conversational AI.
 
 ### Downloads
 From the main web UI, you can export the analyzed conversation in several formats:
-- Text (`.txt`) and PDF (`.pdf`): text-only.
+- Text (`.txt`): text-only.
+- PDF (`.pdf`): includes embedded images.
 - HTML (`.html`): includes images embedded inline.
 - ZIP (`.zip`): a bundle containing the transcript, all images, and a metadata file.
 

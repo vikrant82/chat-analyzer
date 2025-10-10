@@ -6,6 +6,9 @@ import json
 import base64
 from typing import List, Dict, Any
 from clients.base_client import Message as StandardMessage
+from PIL import Image
+import tempfile
+import os
 
 def _break_long_words(text: str, max_len: int) -> str:
     """Inserts spaces into words longer than max_len to allow for line breaking."""
@@ -18,18 +21,145 @@ def _break_long_words(text: str, max_len: int) -> str:
             new_words.append(word)
     return ' '.join(new_words)
 
-def create_pdf(text: str, chat_id: str) -> BytesIO:
+def create_pdf(messages_list: List[StandardMessage], image_items: List[Dict[str, Any]], chat_id: str, date_range: str) -> BytesIO:
+    """
+    Create a PDF with text and embedded images.
+    
+    Args:
+        messages_list: List of message objects
+        image_items: List of image data dictionaries with base64 encoded images
+        chat_id: Chat identifier
+        date_range: Date range string for display
+    
+    Returns:
+        BytesIO buffer containing the PDF
+    """
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", size=10)
+    pdf.set_auto_page_break(auto=True, margin=15)
     
+    # Title
     pdf.set_font("Arial", 'B', 14)
     pdf.cell(0, 10, f"Chat History: {chat_id}", 0, 1, 'C')
-    pdf.ln(10)
+    pdf.set_font("Arial", 'I', 10)
+    pdf.cell(0, 5, f"Date Range: {date_range}", 0, 1, 'C')
+    pdf.ln(5)
     
-    pdf.set_font("Arial", size=10)
-    safe_text = _break_long_words(text.encode('latin-1', 'replace').decode('latin-1'), 80)
-    pdf.multi_cell(0, 5, safe_text)
+    # Create a lookup for images by sequence number
+    img_lookup = {item["seq"]: item for item in image_items}
+    current_img_seq = 0
+    in_thread = False
+    
+    for msg in messages_list:
+        is_reply = msg.thread_id is not None
+        
+        # Thread markers
+        if is_reply and not in_thread:
+            pdf.set_font("Arial", 'B', 10)
+            pdf.cell(0, 5, "--- Thread Started ---", 0, 1)
+            in_thread = True
+        elif not is_reply and in_thread:
+            pdf.set_font("Arial", 'B', 10)
+            pdf.cell(0, 5, "--- Thread Ended ---", 0, 1)
+            pdf.ln(3)
+            in_thread = False
+        
+        # Message header
+        pdf.set_font("Arial", 'B', 10)
+        indent = 10 if is_reply else 0
+        pdf.set_x(10 + indent)
+        header_text = f"{msg.author.name} at {msg.timestamp}"
+        safe_header = header_text.encode('latin-1', 'replace').decode('latin-1')
+        pdf.cell(0, 5, safe_header, 0, 1)
+        
+        # Message text
+        if msg.text:
+            pdf.set_font("Arial", size=10)
+            pdf.set_x(10 + indent)
+            safe_text = _break_long_words(msg.text.encode('latin-1', 'replace').decode('latin-1'), 80)
+            # Use multi_cell for text wrapping
+            x_pos = pdf.get_x()
+            y_pos = pdf.get_y()
+            pdf.set_xy(x_pos, y_pos)
+            # Split text into lines manually to maintain indent
+            for line in safe_text.split('\n'):
+                pdf.set_x(10 + indent)
+                pdf.multi_cell(0, 5, line)
+        
+        # Embed images if present
+        if msg.attachments:
+            for att in msg.attachments:
+                current_img_seq += 1
+                item = img_lookup.get(current_img_seq)
+                if not item:
+                    continue
+                
+                try:
+                    # Decode base64 image
+                    img_data = base64.b64decode(item['data_base64'])
+                    
+                    # Create a temporary file for the image
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
+                        tmp_path = tmp_file.name
+                        
+                        # Convert image to a format FPDF can handle
+                        img = Image.open(BytesIO(img_data))
+                        
+                        # Convert RGBA to RGB if necessary
+                        if img.mode in ('RGBA', 'LA', 'P'):
+                            background = Image.new('RGB', img.size, (255, 255, 255))
+                            if img.mode == 'P':
+                                img = img.convert('RGBA')
+                            background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                            img = background
+                        
+                        # Save as PNG
+                        img.save(tmp_path, 'PNG')
+                    
+                    try:
+                        # Calculate image dimensions to fit on page
+                        # Max width: 180mm (leaving margins), Max height: 100mm
+                        max_width = 180
+                        max_height = 100
+                        
+                        img_width_mm = img.width * 0.264583  # Convert pixels to mm (96 DPI)
+                        img_height_mm = img.height * 0.264583
+                        
+                        # Scale down if too large
+                        scale = min(max_width / img_width_mm, max_height / img_height_mm, 1.0)
+                        final_width = img_width_mm * scale
+                        final_height = img_height_mm * scale
+                        
+                        # Check if we need a new page
+                        if pdf.get_y() + final_height > pdf.page_break_trigger:
+                            pdf.add_page()
+                        
+                        pdf.set_x(10 + indent)
+                        # Add image caption
+                        pdf.set_font("Arial", 'I', 8)
+                        pdf.cell(0, 4, f"[Image #{current_img_seq}]", 0, 1)
+                        
+                        # Add the image
+                        pdf.image(tmp_path, x=10 + indent, w=final_width)
+                        pdf.ln(2)
+                        
+                    finally:
+                        # Clean up temp file
+                        if os.path.exists(tmp_path):
+                            os.unlink(tmp_path)
+                    
+                except Exception as e:
+                    # If image embedding fails, add a placeholder text
+                    pdf.set_font("Arial", 'I', 9)
+                    pdf.set_x(10 + indent)
+                    error_msg = f"[Image #{current_img_seq} - Could not embed: {str(e)[:50]}]"
+                    pdf.cell(0, 5, error_msg.encode('latin-1', 'replace').decode('latin-1'), 0, 1)
+        
+        pdf.ln(3)  # Space between messages
+    
+    if in_thread:
+        pdf.set_font("Arial", 'B', 10)
+        pdf.cell(0, 5, "--- Thread Ended ---", 0, 1)
     
     pdf_bytes = pdf.output(dest='S')
     output = BytesIO(pdf_bytes)

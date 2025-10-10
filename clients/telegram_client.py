@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import asyncio
 from contextlib import asynccontextmanager
 from typing import List, Dict, Any, AsyncGenerator, Optional, Tuple
 from datetime import datetime, timezone, timedelta
@@ -58,7 +59,8 @@ async def telegram_api_client(phone: str, check_authorized: bool = True) -> Asyn
 class TelegramClient(ChatClient):
 
     def __init__(self):
-        pass
+        self.parallel_fetch_chunk_days = TELEGRAM_CONFIG.get('parallel_fetch_chunk_days', 7)
+        self.max_concurrent_fetches = TELEGRAM_CONFIG.get('max_concurrent_fetches', 5)
 
     def _get_cache_path(self, user_identifier: str, chat_id: str, day: datetime) -> str:
         safe_user_id = ''.join(filter(str.isalnum, user_identifier))
@@ -180,14 +182,192 @@ class TelegramClient(ChatClient):
             
             current_day_local += timedelta(days=1)
 
+        # Group uncached days into contiguous ranges for parallel fetching
+        def group_into_contiguous_ranges(days: List[datetime], max_chunk_size: int = 7) -> List[List[datetime]]:
+            """
+            Group days into contiguous date ranges, splitting large ranges into chunks for parallel fetching.
+            
+            Args:
+                days: List of datetime objects representing days to fetch
+                max_chunk_size: Maximum number of days in a single chunk (default: 7)
+            
+            Returns:
+                List of lists, where each inner list is a contiguous date range
+            """
+            if not days:
+                return []
+            
+            days_sorted = sorted(days)
+            ranges = []
+            current_range = [days_sorted[0]]
+            
+            # First pass: identify contiguous ranges
+            for i in range(1, len(days_sorted)):
+                if (days_sorted[i] - days_sorted[i-1]).days == 1:
+                    current_range.append(days_sorted[i])
+                else:
+                    ranges.append(current_range)
+                    current_range = [days_sorted[i]]
+            ranges.append(current_range)
+            
+            # Second pass: split large ranges into chunks for parallel fetching
+            chunked_ranges = []
+            for date_range in ranges:
+                if len(date_range) > max_chunk_size:
+                    # Split into chunks
+                    for i in range(0, len(date_range), max_chunk_size):
+                        chunk = date_range[i:i + max_chunk_size]
+                        chunked_ranges.append(chunk)
+                    logger.info(f"Split large range of {len(date_range)} days into {len(range(0, len(date_range), max_chunk_size))} chunks for parallel fetching")
+                else:
+                    chunked_ranges.append(date_range)
+            
+            return chunked_ranges
+
         if dates_to_fetch_from_api_local:
-            fetch_start_utc = start_dt_utc
-            fetch_end_utc = end_dt_utc
-
-            logger.info(f"Cache MISS for Telegram chat {chat_id}. Fetching local-window {start_dt_local.date()}..{end_dt_local.date()} (offset_date={fetch_end_utc.isoformat()}).")
-
+            # Group uncached days into contiguous ranges
+            date_ranges = group_into_contiguous_ranges(dates_to_fetch_from_api_local, max_chunk_size=self.parallel_fetch_chunk_days)
+            logger.info(f"Cache MISS for Telegram chat {chat_id}. Found {len(date_ranges)} date range(s) to fetch (chunk size: {self.parallel_fetch_chunk_days} days)")
+            
+            # Combine global config with per-request settings
+            final_image_settings = image_processing_settings or {}
+            
+            # For Telegram, we must use a SINGLE client connection shared across all chunks
+            # to avoid SQLite "database is locked" errors from concurrent session file access
             newly_fetched_messages = []
+            all_fetched_ranges = []
+            
             async with telegram_api_client(user_identifier) as client:
+                # Helper function to fetch messages for a single date range using shared client
+                async def fetch_date_range(range_days: List[datetime], shared_client):
+                    range_start_local = range_days[0]
+                    range_end_local = range_days[-1] + timedelta(days=1, microseconds=-1)
+                    range_start_utc = range_start_local.astimezone(timezone.utc)
+                    range_end_utc = range_end_local.astimezone(timezone.utc)
+                    
+                    logger.info(f"Fetching Telegram messages for range {range_start_local.date()} to {range_days[-1].date()}")
+                    
+                    range_messages = []
+                    try:
+                        chat_id_input = chat_id
+                        if isinstance(chat_id_input, str) and chat_id_input.lstrip('-').isdigit():
+                            chat_id_input = int(chat_id_input)
+                    
+                        from telethon.tl.types import PeerUser
+                        
+                        chat_id_int = int(chat_id_input)
+                        target_entity = await shared_client.get_entity(PeerUser(chat_id_int))
+                        if isinstance(target_entity, list):
+                            target_entity = target_entity[0]
+
+                    except Exception as e:
+                        logger.error(f"Error resolving entity '{chat_id}': {e}", exc_info=True)
+                        return [], range_days
+
+                    logger.info(f"Fetching messages with offset_date={range_end_utc.isoformat()} and reverse=False")
+                    
+                    # First pass: collect all raw messages
+                    raw_messages_to_process = []
+                    async for message in shared_client.iter_messages(target_entity, limit=500, offset_date=range_end_utc, reverse=False):
+                        msg_date_utc = message.date.replace(tzinfo=timezone.utc)
+
+                        if msg_date_utc < range_start_utc:
+                            logger.info(f"Message {message.id} is older than range_start date {range_start_utc.isoformat()}, stopping.")
+                            break
+                        
+                        has_text = bool(getattr(message, "message", None) or getattr(message, "text", None))
+                        has_media = bool(getattr(message, "media", None))
+                        if not (has_text or has_media):
+                            logger.info(f"Message {message.id} has no text or media, skipping.")
+                            continue
+        
+                        sender = await message.get_sender()
+                        author_name, author_id = "Unknown", "0"
+                        if isinstance(sender, TelethonUser):
+                            author_name = sender.first_name or sender.username or f"User {sender.id}"
+                            author_id = str(sender.id)
+                        elif isinstance(sender, TelethonChannel):
+                            author_name = sender.title
+                            author_id = str(sender.id)
+                        
+                        reply_to_id = None
+                        if message.reply_to and message.reply_to.reply_to_msg_id:
+                            reply_to_id = str(message.reply_to.reply_to_msg_id)
+                        
+                        raw_messages_to_process.append({
+                            'message': message,
+                            'author_name': author_name,
+                            'author_id': author_id,
+                            'reply_to_id': reply_to_id,
+                            'has_media': has_media
+                        })
+                    
+                    # Second pass: download all media in parallel
+                    async def download_message_media(msg_info):
+                        """Download media for a single message"""
+                        message = msg_info['message']
+                        if not msg_info['has_media'] or not final_image_settings.get("enabled", False):
+                            return []
+                        
+                        try:
+                            import base64
+                            from io import BytesIO
+                            buf = BytesIO()
+                            await shared_client.download_media(message, file=buf)
+                            data_bytes = buf.getvalue() or b""
+                            max_size = int(final_image_settings.get("max_size_bytes") or 0)
+                            if max_size > 0 and len(data_bytes) > max_size:
+                                logger.info(f"Skipping media for message {message.id}: {len(data_bytes)} bytes exceeds cap {max_size} bytes")
+                                return []
+                            elif len(data_bytes) > 0:
+                                mime = "application/octet-stream"
+                                sig4 = bytes(data_bytes[:4])
+                                if sig4.startswith(b"\x89PNG"):
+                                    mime = "image/png"
+                                elif sig4.startswith(b"\xFF\xD8\xFF"):
+                                    mime = "image/jpeg"
+                                elif data_bytes[:6] in (b"GIF89a", b"GIF87a"):
+                                    mime = "image/gif"
+                                elif data_bytes[:4] == b"RIFF" and data_bytes[8:12] == b"WEBP":
+                                    mime = "image/webp"
+
+                                allowed = final_image_settings.get("allowed_mime_types") or []
+                                if allowed and mime not in allowed:
+                                    logger.info(f"Skipping media for message {message.id}: MIME {mime} not allowed")
+                                    return []
+                                else:
+                                    encoded = base64.b64encode(data_bytes).decode("utf-8")
+                                    return [Attachment(mime_type=mime, data=encoded)]
+                            return []
+                        except Exception as e:
+                            logger.warning(f"Failed to process media for message {message.id}: {e}", exc_info=True)
+                            return []
+                    
+                    # Download all media concurrently
+                    if raw_messages_to_process:
+                        logger.info(f"Downloading media for {len(raw_messages_to_process)} messages in parallel")
+                        media_results = await asyncio.gather(*[download_message_media(msg_info) for msg_info in raw_messages_to_process], return_exceptions=True)
+                    else:
+                        media_results = []
+                    
+                    # Third pass: create Message objects with downloaded media
+                    for idx, msg_info in enumerate(raw_messages_to_process):
+                        message = msg_info['message']
+                        attachments = media_results[idx] if idx < len(media_results) and not isinstance(media_results[idx], Exception) else []
+                        
+                        range_messages.append(Message(
+                            id=str(message.id),
+                            text=(getattr(message, "message", None) or getattr(message, "text", None)),
+                            author=User(id=msg_info['author_id'], name=msg_info['author_name']),
+                            timestamp=message.date.isoformat(),
+                            thread_id=msg_info['reply_to_id'],
+                            attachments=attachments if attachments else None,
+                        ))
+                
+                    logger.info(f"Fetched {len(range_messages)} messages for range {range_start_local.date()} to {range_days[-1].date()}")
+                    return range_messages, range_days
+                
+                # Resolve entity once (outside the parallel loop to avoid conflicts)
                 try:
                     chat_id_input = chat_id
                     if isinstance(chat_id_input, str) and chat_id_input.lstrip('-').isdigit():
@@ -199,82 +379,45 @@ class TelegramClient(ChatClient):
                     target_entity = await client.get_entity(PeerUser(chat_id_int))
                     if isinstance(target_entity, list):
                         target_entity = target_entity[0]
-
                 except Exception as e:
                     logger.error(f"Error resolving entity '{chat_id}': {e}", exc_info=True)
                     return []
-
-                logger.info(f"Fetching messages with offset_date={fetch_end_utc.isoformat()} and reverse=False")
-                async for message in client.iter_messages(target_entity, limit=500, offset_date=fetch_end_utc, reverse=False):
-                    msg_date_utc = message.date.replace(tzinfo=timezone.utc)
-
-                    if msg_date_utc < fetch_start_utc:
-                        logger.info(f"Message {message.id} is older than fetch_start date {fetch_start_utc.isoformat()}, stopping.")
-                        break
+                
+                # Fetch all date ranges in parallel using the shared client with concurrency limit
+                # The shared client prevents SQLite locking issues while still allowing parallel API calls
+                if len(date_ranges) > 1:
+                    logger.info(f"Fetching {len(date_ranges)} date range(s) with max {self.max_concurrent_fetches} concurrent requests (shared client)")
                     
-                    has_text = bool(getattr(message, "message", None) or getattr(message, "text", None))
-                    has_media = bool(getattr(message, "media", None))
-                    if not (has_text or has_media):
-                        logger.info(f"Message {message.id} has no text or media, skipping.")
+                    # Use a semaphore to limit concurrency
+                    semaphore = asyncio.Semaphore(self.max_concurrent_fetches)
+                    
+                    async def fetch_with_limit(range_days):
+                        async with semaphore:
+                            return await fetch_date_range(range_days, client)
+                    
+                    fetch_results = await asyncio.gather(*[fetch_with_limit(range_days) for range_days in date_ranges], return_exceptions=True)
+                else:
+                    # Single small range, no need for parallelization overhead
+                    logger.info(f"Fetching single date range of {len(date_ranges[0])} days")
+                    fetch_results = [await fetch_date_range(date_ranges[0], client)]
+                
+                # Combine results and deduplicate
+                seen_message_ids = set()
+                for result in fetch_results:
+                    if isinstance(result, Exception):
+                        logger.error(f"Error fetching date range: {result}")
                         continue
-    
-                    sender = await message.get_sender()
-                    author_name, author_id = "Unknown", "0"
-                    if isinstance(sender, TelethonUser):
-                        author_name = sender.first_name or sender.username or f"User {sender.id}"
-                        author_id = str(sender.id)
-                    elif isinstance(sender, TelethonChannel):
-                        author_name = sender.title
-                        author_id = str(sender.id)
+                    messages, range_days = result
                     
-                    reply_to_id = None
-                    if message.reply_to and message.reply_to.reply_to_msg_id:
-                        reply_to_id = str(message.reply_to.reply_to_msg_id)
-
-                    attachments: List[Attachment] = []
-                    if not final_image_settings.get("enabled", False):
-                        if getattr(message, "media", None):
-                            logger.info("Image processing is disabled by configuration. Skipping file download.")
-                    else:
-                        if getattr(message, "media", None):
-                            try:
-                                import base64
-                                from io import BytesIO
-                                buf = BytesIO()
-                                await client.download_media(message, file=buf)
-                                data_bytes = buf.getvalue() or b""
-                                max_size = int(final_image_settings.get("max_size_bytes") or 0)
-                                if max_size > 0 and len(data_bytes) > max_size:
-                                    logger.info(f"Skipping media for message {message.id}: {len(data_bytes)} bytes exceeds cap {max_size} bytes")
-                                elif len(data_bytes) > 0:
-                                    mime = "application/octet-stream"
-                                    sig4 = bytes(data_bytes[:4])
-                                    if sig4.startswith(b"\x89PNG"):
-                                        mime = "image/png"
-                                    elif sig4.startswith(b"\xFF\xD8\xFF"):
-                                        mime = "image/jpeg"
-                                    elif data_bytes[:6] in (b"GIF89a", b"GIF87a"):
-                                        mime = "image/gif"
-                                    elif data_bytes[:4] == b"RIFF" and data_bytes[8:12] == b"WEBP":
-                                        mime = "image/webp"
-
-                                    allowed = final_image_settings.get("allowed_mime_types") or []
-                                    if allowed and mime not in allowed:
-                                        logger.info(f"Skipping media for message {message.id}: MIME {mime} not allowed")
-                                    else:
-                                        encoded = base64.b64encode(data_bytes).decode("utf-8")
-                                        attachments.append(Attachment(mime_type=mime, data=encoded))
-                            except Exception as e:
-                                logger.warning(f"Failed to process media for message {message.id}: {e}", exc_info=True)
-
-                    newly_fetched_messages.append(Message(
-                        id=str(message.id),
-                        text=(getattr(message, "message", None) or getattr(message, "text", None)),
-                        author=User(id=author_id, name=author_name),
-                        timestamp=message.date.isoformat(),
-                        thread_id=reply_to_id,
-                        attachments=attachments if attachments else None,
-                    ))
+                    # Deduplicate messages by ID
+                    for msg in messages:
+                        if msg.id not in seen_message_ids:
+                            newly_fetched_messages.append(msg)
+                            seen_message_ids.add(msg.id)
+                    
+                    all_fetched_ranges.extend(range_days)
+                
+                logger.info(f"After processing {len(date_ranges)} range(s): {len(newly_fetched_messages)} unique messages")
 
             all_messages.extend(newly_fetched_messages)
 
@@ -290,7 +433,7 @@ class TelegramClient(ChatClient):
                         grouped_by_day_local[msg_day_local] = []
                     grouped_by_day_local[msg_day_local].append(msg)
 
-                for day_to_cache_local in dates_to_fetch_from_api_local:
+                for day_to_cache_local in all_fetched_ranges:
                     if day_to_cache_local < today_local:
                         messages_for_this_day = grouped_by_day_local.get(day_to_cache_local, [])
                         cache_path = self._get_cache_path(user_identifier, chat_id, day_to_cache_local)

@@ -28,7 +28,7 @@ class BotRegistrationRequest(BaseModel):
 @router.post("/{backend}/bots")
 async def register_bot(backend: str, req: BotRegistrationRequest, user_id: str = Depends(auth_service.get_current_user_id)):
     try:
-        bot_manager.register_bot(backend, req.name, req.token, req.bot_id)
+        bot_manager.register_bot(user_id, backend, req.name, req.token, req.bot_id)
         if req.webhook_url:
             bot_client = get_bot_client(backend, req.token)
             if backend == "webex":
@@ -55,12 +55,12 @@ async def register_bot(backend: str, req: BotRegistrationRequest, user_id: str =
 
 @router.get("/{backend}/bots")
 async def get_bots(backend: str, user_id: str = Depends(auth_service.get_current_user_id)):
-    return bot_manager.get_bots(backend)
+    return bot_manager.get_bots(user_id, backend)
 
 @router.delete("/{backend}/bots/{bot_name}")
 async def delete_bot(backend: str, bot_name: str, user_id: str = Depends(auth_service.get_current_user_id)):
     try:
-        bot_manager.delete_bot(backend, bot_name)
+        bot_manager.delete_bot(user_id, backend, bot_name)
         return {"status": "success", "message": f"Bot '{bot_name}' deleted."}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

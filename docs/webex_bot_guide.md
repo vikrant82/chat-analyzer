@@ -49,6 +49,7 @@ The Webex bot is now ready to use.
 *   **Mentioning the Bot:** The bot will only listen for messages where it is directly @-mentioned.
 *   **Example Command:** `@YourBotName summarize last 2 days`
 *   **Downloads:** After an analysis is run from the UI, you can download the results as:
-    - Text (`.txt`) and PDF (`.pdf`): text-only.
+    - Text (`.txt`): text-only.
+    - PDF (`.pdf`): includes embedded images.
     - HTML (`.html`): includes images embedded inline.
     - ZIP (`.zip`): a bundle containing the transcript, all images, and a metadata file.

@@ -2,7 +2,7 @@ import { appState, config } from './state.js';
 import { makeApiRequest } from './api.js';
 import {
     chatLoadingError, lastUpdatedTime, refreshChatsLink, modelError, modelSelect,
-    updateStartChatButtonState, getChoicesInstance, setLoadingState, chatWindow,
+    updateStartChatButtonState, getChoicesInstance, getFlatpickrInstance, setLoadingState, chatWindow,
     sendChatButton, downloadChatButton, downloadFormat, maxImageSize, imageProcessingToggle,
     cacheChatsToggle, formatDate
 } from './ui.js';
@@ -221,13 +221,13 @@ export async function callChatApi(message = null, chatId = null) {
         }
         const [provider, modelName] = selectedModel.split('_PROVIDER_SEPARATOR_');
 
-        const datePicker = document.getElementById('dateRangePicker')._flatpickr;
+        const datePicker = getFlatpickrInstance();
         const requestBody = {
             chatId: chatId,
             provider: provider,
             modelName: modelName,
-            startDate: datePicker.selectedDates[0] ? formatDate(datePicker.selectedDates[0]) : null,
-            endDate: datePicker.selectedDates[1] ? formatDate(datePicker.selectedDates[1]) : null,
+            startDate: datePicker && datePicker.selectedDates[0] ? formatDate(datePicker.selectedDates[0]) : null,
+            endDate: datePicker && datePicker.selectedDates[1] ? formatDate(datePicker.selectedDates[1]) : null,
             enableCaching: cacheChatsToggle.checked,
             conversation: appState.conversation,
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -341,18 +341,17 @@ export async function handleDownloadChat() {
 
     setLoadingState(downloadChatButton, true, 'Downloading...');
     try {
+        const datePicker = getFlatpickrInstance();
         const requestBody = {
             chatId: appState.currentChatId || getChoicesInstance().getValue(true),
-            startDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[0]),
-            endDate: formatDate(document.getElementById('dateRangePicker')._flatpickr.selectedDates[1]),
+            startDate: datePicker && datePicker.selectedDates[0] ? formatDate(datePicker.selectedDates[0]) : null,
+            endDate: datePicker && datePicker.selectedDates[1] ? formatDate(datePicker.selectedDates[1]) : null,
             enableCaching: cacheChatsToggle.checked,
             format: downloadFormat.value,
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            // Ensure downloads include images by default with sane caps
             imageProcessing: {
-                enabled: true,
+                enabled: imageProcessingToggle.checked,
                 max_size_bytes: parseInt(maxImageSize.value || "5") * 1024 * 1024,
-                // let backend defaults handle allowed types; send empty to not restrict unless user configured
             }
         };
 

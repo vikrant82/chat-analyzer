@@ -2,7 +2,7 @@ import { appState, CACHE_CHATS_KEY, IMAGE_PROCESSING_ENABLED_KEY, MAX_IMAGE_SIZE
 import { makeApiRequest } from './api.js';
 import {
     initializeChoices, initializeFlatpickr, updateStartChatButtonState, showSection, getChoicesInstance,
-    startChatButton, dateError, chatWindow, initialQuestion, sendChatButton, chatInput,
+    getFlatpickrInstance, startChatButton, dateError, chatWindow, initialQuestion, sendChatButton, chatInput,
     clearChatButton, welcomeMessage, toggleQuestionCheckbox, initialQuestionGroup,
     cacheChatsToggle, imageProcessingToggle, maxImageSize, backendSelect,
     loginSubmitButton, webexLoginButton, verifyButton, logoutButton, refreshChatsLink,
@@ -80,9 +80,8 @@ function restoreSession(session) {
     }
 
     modelSelect.value = session.model;
-    const datePickerEl = document.getElementById('dateRangePicker');
-    if (datePickerEl && datePickerEl._flatpickr) {
-        const datePicker = datePickerEl._flatpickr;
+    const datePicker = getFlatpickrInstance();
+    if (datePicker) {
         datePicker.setDate([session.startDate, session.endDate], false);
     }
     cacheChatsToggle.checked = session.caching;
@@ -107,8 +106,7 @@ function addChatToRecents(session) {
 }
 
 function getChatParameters() {
-    const datePickerEl = document.getElementById('dateRangePicker');
-    const datePickerInstance = datePickerEl ? datePickerEl._flatpickr : null;
+    const datePickerInstance = getFlatpickrInstance();
     let selectedChat, chatId;
 
     if (appState.activeBackend === 'reddit') {
@@ -212,8 +210,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!Array.isArray(appState.conversation)) {
                 appState.conversation = [];
             }
-            const datePickerEl = document.getElementById('dateRangePicker');
-            const datePickerInstance = datePickerEl ? datePickerEl._flatpickr : null;
+            const datePickerInstance = getFlatpickrInstance();
 
             if (!datePickerInstance) {
                 dateError.textContent = 'Date picker not initialized.';
@@ -384,7 +381,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const savedEnabled = localStorage.getItem(IMAGE_PROCESSING_ENABLED_KEY);
         imageProcessingToggle.checked = savedEnabled === null ? false : savedEnabled === 'true';
         imageProcessingToggle.addEventListener('change', () => {
-            localStorage.setItem(IMAGE_PROCESSING_ENABLED_KEY, imageProcessingToggle.checked);
+            localStorage.setItem(IMAGE_PROCESSING_ENABLED_KEY, imageProcessingToggle.checked ? 'true' : 'false');
             updateStartChatButtonState();
         });
     }

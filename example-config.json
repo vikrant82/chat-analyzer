@@ -1,7 +1,9 @@
 {
   "telegram": {
     "api_id": "YOUR_TELEGRAM_API_ID",
-    "api_hash": "YOUR_TELEGRAM_API_HASH"
+    "api_hash": "YOUR_TELEGRAM_API_HASH",
+    "parallel_fetch_chunk_days": 7,
+    "max_concurrent_fetches": 5
   },
   "webex": {
     "client_id": "YOUR_WEBEX_CLIENT_ID",
@@ -19,7 +21,9 @@
         "image/gif",
         "image/webp"
       ]
-    }
+    },
+    "parallel_fetch_chunk_days": 7,
+    "max_concurrent_fetches": 5
   },
   "google_ai": {
     "api_key": "YOUR_GOOGLE_AI_API_KEY",

@@ -53,7 +53,8 @@ Use this method if you have made changes to the source code or need a build for 
 
 #### Prerequisites
 -   Python 3.9+
--   API credentials (see "Configuration Details" section below).
+-   API credentials (see "Configuration Details" section below)
+-   **Note**: The application now requires the `Pillow` library for PDF image embedding (included in requirements.txt).
 
 #### Steps
 1.  **Create a Virtual Environment**: It is highly recommended to use a virtual environment to isolate project dependencies.
@@ -117,13 +118,31 @@ In the root of the project, create a `config.json` file and populate it with you
     -   `max_size_bytes`: The maximum size of an image (in bytes) that will be processed.
     -   `allowed_mime_types`: A list of image formats (e.g., "image/jpeg", "image/png") that are permitted for analysis.
 
+-   **Parallel Fetch Settings**: These settings control how message fetching is parallelized for better performance.
+    
+    -   **`parallel_fetch_chunk_days`**: Controls how large date ranges are split into chunks
+        -   **Default**: `7` (one week) - **Recommended for most users**
+        -   **Range**: `3-14` days
+        -   **Smaller values** (e.g., `3-5`): More chunks, more parallelization
+        -   **Larger values** (e.g., `10-14`): Fewer chunks, less overhead
+        -   ⚠️ **Warning**: Setting this to `1` will create too many chunks and slow down fetching significantly
+    
+    -   **`max_concurrent_fetches`**: Limits how many chunks fetch simultaneously
+        -   **Default**: `5` concurrent requests - **Recommended**
+        -   **Range**: `3-10`
+        -   **Purpose**: Prevents overwhelming the API server with too many concurrent connections
+        -   **Too high**: May cause 503 errors (Service Unavailable) from the API
+        -   **Too low**: Won't fully utilize parallelization benefits
+        -   **Tip**: Keep at 5 unless you experience API rate limiting, then reduce to 3
+
 ***Note:** The `bots` section of the configuration is managed automatically by the application. Do not add bot configurations here manually. Use the "Manage Bots" interface in the web UI.*
 
 ```json
 {
   "telegram": {
     "api_id": "YOUR_TELEGRAM_API_ID",
-    "api_hash": "YOUR_TELEGRAM_API_HASH"
+    "api_hash": "YOUR_TELEGRAM_API_HASH",
+    "parallel_fetch_chunk_days": 7
   },
   "webex": {
     "client_id": "YOUR_WEBEX_CLIENT_ID",
@@ -141,7 +160,8 @@ In the root of the project, create a `config.json` file and populate it with you
         "image/gif",
         "image/webp"
       ]
-    }
+    },
+    "parallel_fetch_chunk_days": 7
   },
   "google_ai": {
     "api_key": "YOUR_GOOGLE_AI_API_KEY",
@@ -159,4 +179,21 @@ In the root of the project, create a `config.json` file and populate it with you
   }
 }
 ```
+
+### Performance Tuning (Optional)
+
+The performance settings shown above (`parallel_fetch_chunk_days` and `max_concurrent_fetches`) are **optional**. If omitted, sensible defaults will be used. Only adjust these if you:
+- Experience slow performance with large date ranges
+- Encounter API rate limiting (503 errors)
+- Have unusually fast or slow network connections
+
+**Quick Reference:**
+
+| Your Situation | Recommended Settings |
+|----------------|---------------------|
+| **Default (works for most)** | `chunk_days: 7`, `concurrent: 5` |
+| **Fast network, no rate limits** | `chunk_days: 5`, `concurrent: 5-7` |
+| **Slow network or rate limits** | `chunk_days: 10-14`, `concurrent: 3` |
+| **Getting 503 errors** | Reduce `concurrent` to `3` |
+
 *Note: If you are running the app in Docker and want to connect to LM Studio running on your host machine, use `http://host.docker.internal:1234/v1/chat/completions` as the `url`.*

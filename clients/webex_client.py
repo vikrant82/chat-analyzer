@@ -1,6 +1,7 @@
 import os
 import base64
 import httpx
+import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
@@ -46,6 +47,8 @@ class WebexClient(ChatClient):
         )
         self.http_client = httpx.AsyncClient()
         self.image_processing_config = WEBEX_CONFIG.get('image_processing', {})
+        self.parallel_fetch_chunk_days = WEBEX_CONFIG.get('parallel_fetch_chunk_days', 7)
+        self.max_concurrent_fetches = WEBEX_CONFIG.get('max_concurrent_fetches', 5)
 
 
     async def _download_and_encode_file(self, file_url: str, settings: Dict[str, Any]) -> Optional[Attachment]:
@@ -174,6 +177,48 @@ class WebexClient(ChatClient):
             
             current_day_local += timedelta(days=1)
         
+        # Group uncached days into contiguous ranges for parallel fetching
+        def group_into_contiguous_ranges(days: List[datetime], max_chunk_size: int = 7) -> List[List[datetime]]:
+            """
+            Group days into contiguous date ranges, splitting large ranges into chunks for parallel fetching.
+            
+            Args:
+                days: List of datetime objects representing days to fetch
+                max_chunk_size: Maximum number of days in a single chunk (default: 7)
+            
+            Returns:
+                List of lists, where each inner list is a contiguous date range
+            """
+            if not days:
+                return []
+            
+            days_sorted = sorted(days)
+            ranges = []
+            current_range = [days_sorted[0]]
+            
+            # First pass: identify contiguous ranges
+            for i in range(1, len(days_sorted)):
+                if (days_sorted[i] - days_sorted[i-1]).days == 1:
+                    current_range.append(days_sorted[i])
+                else:
+                    ranges.append(current_range)
+                    current_range = [days_sorted[i]]
+            ranges.append(current_range)
+            
+            # Second pass: split large ranges into chunks for parallel fetching
+            chunked_ranges = []
+            for date_range in ranges:
+                if len(date_range) > max_chunk_size:
+                    # Split into chunks
+                    for i in range(0, len(date_range), max_chunk_size):
+                        chunk = date_range[i:i + max_chunk_size]
+                        chunked_ranges.append(chunk)
+                    logger.info(f"Split large range of {len(date_range)} days into {len(range(0, len(date_range), max_chunk_size))} chunks for parallel fetching")
+                else:
+                    chunked_ranges.append(date_range)
+            
+            return chunked_ranges
+        
         if dates_to_fetch_from_api_local:
             # Combine global config with per-request settings
             final_image_settings = self.image_processing_config.copy()
@@ -181,36 +226,106 @@ class WebexClient(ChatClient):
                 final_image_settings.update(image_processing_settings)
             logger.info(f"Image processing settings for this request: {final_image_settings}")
 
-            logger.info(f"Cache MISS for Webex chat {chat_id}. Fetching messages from API back to {start_dt_local.date()} (local).")
-
-            all_fetched_raw_messages = []
-            oldest_message_dt_utc = datetime.now(timezone.utc)
-            # Pagination threshold: oldest message must be later than start of requested local window (converted to UTC)
-            fetch_start_dt_utc = start_dt_utc
+            # Group uncached days into contiguous ranges
+            date_ranges = group_into_contiguous_ranges(dates_to_fetch_from_api_local, max_chunk_size=self.parallel_fetch_chunk_days)
+            logger.info(f"Cache MISS for Webex chat {chat_id}. Found {len(date_ranges)} date range(s) to fetch (chunk size: {self.parallel_fetch_chunk_days} days)")
             
-            params = {"room_id": chat_id, "max": 1000}
-
-            while oldest_message_dt_utc > fetch_start_dt_utc:
-                logger.info(f"Fetching a batch of Webex messages for room {chat_id} before {params.get('before', 'now')}")
-                try:
-                    raw_batch = self.api.get_messages(**params)
-                except Exception as e:
-                    logger.error(f"Failed to fetch message batch for Webex room {chat_id}: {e}", exc_info=True)
-                    break
-
-                if not raw_batch:
-                    logger.info(f"No more messages found for Webex room {chat_id}. Stopping pagination.")
-                    break
-
-                all_fetched_raw_messages.extend(raw_batch)
+            # Helper function to fetch messages for a single date range
+            async def fetch_date_range(range_days: List[datetime]):
+                range_start_local = range_days[0]
+                range_end_local = range_days[-1] + timedelta(days=1, microseconds=-1)
+                range_start_utc = range_start_local.astimezone(timezone.utc)
+                range_end_utc = range_end_local.astimezone(timezone.utc)
                 
-                oldest_message_in_batch_raw = raw_batch[-1]
-                oldest_message_dt_utc = datetime.fromisoformat(oldest_message_in_batch_raw['created'].replace('Z', '+00:00'))
-                params['before'] = oldest_message_in_batch_raw['created']
-
-                if len(raw_batch) < 2:
-                     logger.info("Fetched a batch with less than 2 messages, assuming end of history.")
-                     break
+                logger.info(f"Fetching Webex messages for range {range_start_local.date()} to {range_days[-1].date()}")
+                
+                range_messages = []
+                # Initialize to the end of this specific chunk range
+                oldest_message_dt_utc = range_end_utc
+                params = {"room_id": chat_id, "max": 1000}
+                
+                # Always set 'before' to start fetching from the end of this chunk's range
+                # This ensures each chunk only fetches its own time window
+                params['before'] = range_end_utc.isoformat().replace('+00:00', 'Z')
+                
+                batch_count = 0
+                messages_in_range = 0
+                while oldest_message_dt_utc > range_start_utc:
+                    batch_count += 1
+                    try:
+                        # Wrap synchronous API call in to_thread for true async parallelism
+                        raw_batch = await asyncio.to_thread(self.api.get_messages, **params)
+                    except Exception as e:
+                        logger.error(f"Failed to fetch message batch #{batch_count} for range {range_start_local.date()}-{range_days[-1].date()}: {e}", exc_info=True)
+                        break
+                    
+                    if not raw_batch:
+                        logger.info(f"Range {range_start_local.date()}-{range_days[-1].date()}: No messages in batch #{batch_count}, stopping pagination")
+                        break
+                    
+                    # Filter messages to only include those within this chunk's date range
+                    batch_in_range = []
+                    for msg in raw_batch:
+                        msg_dt = datetime.fromisoformat(msg['created'].replace('Z', '+00:00'))
+                        if range_start_utc <= msg_dt <= range_end_utc:
+                            batch_in_range.append(msg)
+                    
+                    messages_in_range += len(batch_in_range)
+                    range_messages.extend(batch_in_range)
+                    
+                    oldest_message_in_batch_raw = raw_batch[-1]
+                    oldest_message_dt_utc = datetime.fromisoformat(oldest_message_in_batch_raw['created'].replace('Z', '+00:00'))
+                    
+                    logger.info(f"Range {range_start_local.date()}-{range_days[-1].date()}: Batch #{batch_count} received {len(raw_batch)} messages ({len(batch_in_range)} in range), oldest={raw_batch[-1]['created']}")
+                    
+                    params['before'] = oldest_message_in_batch_raw['created']
+                    
+                    # Stop if we got a partial batch OR if we've gone past the range start
+                    if len(raw_batch) < 1000 or oldest_message_dt_utc <= range_start_utc:
+                        logger.info(f"Range {range_start_local.date()}-{range_days[-1].date()}: Stopping pagination (batch_size={len(raw_batch)}, past_range_start={oldest_message_dt_utc <= range_start_utc})")
+                        break
+                
+                logger.info(f"Range {range_start_local.date()}-{range_days[-1].date()}: Total {len(range_messages)} raw messages fetched in {batch_count} batch(es)")
+                return range_messages, range_days
+            
+            # Fetch all date ranges in parallel with concurrency limit
+            if len(date_ranges) > 1:
+                logger.info(f"Fetching {len(date_ranges)} date range(s) with max {self.max_concurrent_fetches} concurrent requests")
+                
+                # Use a semaphore to limit concurrency
+                semaphore = asyncio.Semaphore(self.max_concurrent_fetches)
+                
+                async def fetch_with_limit(range_days):
+                    async with semaphore:
+                        return await fetch_date_range(range_days)
+                
+                fetch_results = await asyncio.gather(*[fetch_with_limit(range_days) for range_days in date_ranges], return_exceptions=True)
+            else:
+                # Single small range, no need for parallelization overhead
+                logger.info(f"Fetching single date range of {len(date_ranges[0])} days")
+                fetch_results = [await fetch_date_range(date_ranges[0])]
+            
+            # Combine all fetched messages and their associated date ranges
+            all_fetched_raw_messages = []
+            all_fetched_ranges = []
+            seen_message_ids = set()  # Deduplicate messages across chunks
+            
+            for result in fetch_results:
+                if isinstance(result, Exception):
+                    logger.error(f"Error fetching date range: {result}")
+                    continue
+                messages, range_days = result
+                
+                # Deduplicate messages by ID
+                for msg in messages:
+                    msg_id = msg.get('id')
+                    if msg_id and msg_id not in seen_message_ids:
+                        all_fetched_raw_messages.append(msg)
+                        seen_message_ids.add(msg_id)
+                
+                all_fetched_ranges.extend(range_days)
+            
+            logger.info(f"After deduplication: {len(all_fetched_raw_messages)} unique messages from {len(seen_message_ids)} total fetched")
 
             # Group by LOCAL day
             grouped_by_day_local: Dict[datetime, List[Message]] = {}
@@ -221,6 +336,8 @@ class WebexClient(ChatClient):
             # for messages we already have.
             existing_ids_from_cache = {m.id for m in all_messages}
 
+            # First pass: collect all messages that need processing and their file URLs
+            messages_to_process = []
             for msg_raw in all_fetched_raw_messages:
                 # If this message was already loaded from a daily cache, skip it.
                 if msg_raw.get('id') in existing_ids_from_cache:
@@ -237,30 +354,64 @@ class WebexClient(ChatClient):
 
                 # Filter by local window
                 if start_dt_local <= msg_dt_local <= end_dt_local:
-                    if msg_day_local not in grouped_by_day_local:
-                        grouped_by_day_local[msg_day_local] = []
-                    
-                    attachments = []
-                    if msg_raw.get('files'):
-                        for file_url in msg_raw['files']:
-                            attachment = await self._download_and_encode_file(file_url, final_image_settings)
-                            if attachment:
-                                attachments.append(attachment)
+                    messages_to_process.append({
+                        'raw': msg_raw,
+                        'day_local': msg_day_local,
+                        'file_urls': msg_raw.get('files', [])
+                    })
 
-                    # Only create a message if it has text or a successfully processed attachment
-                    if msg_raw.get('text') or attachments:
-                        author = User(id=msg_raw.get('personId', 'unknown'), name=msg_raw.get('personEmail', 'Unknown User'))
-                        message = Message(
-                            id=msg_raw['id'],
-                            text=msg_raw.get('text'),
-                            author=author,
-                            timestamp=msg_raw['created'],
-                            thread_id=msg_raw.get('parentId'),
-                            attachments=attachments if attachments else None
-                        )
-                        grouped_by_day_local[msg_day_local].append(message)
+            # Second pass: download all files in parallel
+            logger.info(f"Downloading files for {len(messages_to_process)} messages in parallel")
+            all_download_tasks = []
+            task_to_msg_index = {}
+            
+            for idx, msg_info in enumerate(messages_to_process):
+                for file_url in msg_info['file_urls']:
+                    task = self._download_and_encode_file(file_url, final_image_settings)
+                    all_download_tasks.append(task)
+                    task_to_msg_index[len(all_download_tasks) - 1] = (idx, file_url)
+            
+            # Download all files concurrently
+            if all_download_tasks:
+                logger.info(f"Starting parallel download of {len(all_download_tasks)} files")
+                download_results = await asyncio.gather(*all_download_tasks, return_exceptions=True)
+                
+                # Map results back to messages
+                msg_attachments = {idx: [] for idx in range(len(messages_to_process))}
+                for task_idx, result in enumerate(download_results):
+                    if task_idx in task_to_msg_index:
+                        msg_idx, file_url = task_to_msg_index[task_idx]
+                        if isinstance(result, Exception):
+                            logger.error(f"Error downloading file {file_url}: {result}")
+                        elif result is not None:
+                            msg_attachments[msg_idx].append(result)
+            else:
+                msg_attachments = {}
 
-            for day_to_cache_local in dates_to_fetch_from_api_local:
+            # Third pass: create Message objects with downloaded attachments
+            for idx, msg_info in enumerate(messages_to_process):
+                msg_raw = msg_info['raw']
+                msg_day_local = msg_info['day_local']
+                attachments = msg_attachments.get(idx, [])
+                
+                if msg_day_local not in grouped_by_day_local:
+                    grouped_by_day_local[msg_day_local] = []
+                
+                # Only create a message if it has text or a successfully processed attachment
+                if msg_raw.get('text') or attachments:
+                    author = User(id=msg_raw.get('personId', 'unknown'), name=msg_raw.get('personEmail', 'Unknown User'))
+                    message = Message(
+                        id=msg_raw['id'],
+                        text=msg_raw.get('text'),
+                        author=author,
+                        timestamp=msg_raw['created'],
+                        thread_id=msg_raw.get('parentId'),
+                        attachments=attachments if attachments else None
+                    )
+                    grouped_by_day_local[msg_day_local].append(message)
+
+            # Cache messages for each fetched day
+            for day_to_cache_local in all_fetched_ranges:
                 messages_for_this_day = grouped_by_day_local.get(day_to_cache_local, [])
                 
                 all_messages.extend(messages_for_this_day)

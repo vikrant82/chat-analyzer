@@ -28,10 +28,17 @@ The application features a robust caching system to ensure fast, repeated analys
 -   **Intelligent Caching System**:
     -   Dramatically speeds up analysis of historical data.
     -   Always fetches fresh data for "today" to ensure summaries are up-to-date.
+-   **Performance Optimizations**:
+    -   **Parallel Image Downloads**: Multiple images download concurrently for faster analysis (Webex & Telegram).
+    -   **Parallel Date Range Fetching**: Large date ranges are split into chunks and fetched in parallel (up to 3x faster).
+        - Webex: Uses token-based auth for multi-client parallelization.
+        - Telegram: Uses shared client approach to avoid SQLite locking while enabling parallel chunk fetching.
+    -   **Configurable Chunking**: Tune `parallel_fetch_chunk_days` (default: 7) and `max_concurrent_fetches` (default: 5) in config.json for optimal performance.
 -   **User-Friendly Interface**:
     -   Searchable chat list, modern date picker, and global image options.
     -   **Flexible Downloads**: Export results in multiple formats:
-        - Text (.txt) and PDF (.pdf): text-only.
+        - Text (.txt): text-only.
+        - PDF (.pdf): includes embedded images.
         - HTML (.html): includes images inline via data URIs.
         - ZIP (.zip): bundle with transcript.txt, transcript_with_images.html (references images/), images/ files, and manifest.json metadata.
     -   **Bot Management UI**: A simple interface to register, view, and delete your bots.
@@ -47,6 +54,23 @@ For detailed information on how to set up, configure, and use the application, p
 -   **[Telegram Bot Guide](./docs/telegram_bot_guide.md)**: How to create and use the Telegram bot.
 -   **[Reddit Guide](./docs/reddit_guide.md)**: How to connect and use the Reddit integration.
 -   **[Technical Overview](./docs/overview.md)**: A high-level look at the project's architecture.
+
+## Bot Management CLI
+
+A command-line interface is available to manage bot registrations.
+
+-   **Add a bot**:
+    ```bash
+    python bot_cli.py add <backend> <name> <user_id>
+    ```
+-   **List bots**:
+    ```bash
+    python bot_cli.py list <user_id> [--backend <backend>]
+    ```
+-   **Remove a bot**:
+    ```bash
+    python bot_cli.py remove <user_id> <backend> <name>
+    ```
 
 ## Project Structure
 

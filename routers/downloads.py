@@ -103,7 +103,8 @@ async def download_chat(req: DownloadRequest, user_id: str = Depends(get_current
         )
 
     if req.format == "pdf":
-        pdf_buffer = download_service.create_pdf(text_body, req.chatId)
+        date_range = f"{req.startDate} to {req.endDate}"
+        pdf_buffer = download_service.create_pdf(messages_list, image_items, req.chatId, date_range)
         return StreamingResponse(
             pdf_buffer,
             media_type="application/pdf",

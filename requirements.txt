@@ -7,5 +7,6 @@ google-generativeai
 pydantic
 requests
 fpdf2
+Pillow
 tzdata
 asyncpraw

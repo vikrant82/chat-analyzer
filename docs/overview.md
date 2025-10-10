@@ -32,8 +32,9 @@
 - **Docker Execution:** `docker-compose up` (using pre-built image) or `docker-compose -f docker-compose-localbuild.yaml up --build` (for local builds).
 - **Main Entry File:** `app.py`
 - **Download Formats:**
-    - Text-only: `.txt`, `.pdf`
-    - With Images: `.html` (embedded), `.zip` (includes separate image files)
+    - Text-only: `.txt`
+    - With Embedded Images: `.pdf`, `.html`
+    - ZIP Bundle: `.zip` (includes separate image files, HTML, and manifest)
 
 ## 5. Architecture & Core Logic
 - **`app.py`**: Initializes the FastAPI app, mounts the static frontend, and includes the API routers.
@@ -54,6 +55,14 @@
 - **Caching Architecture:**
     - **File-based:** Caches historical message data per-day at `cache/<platform>/<user_id>/<chat_id>/<date>.json`.
     - **In-memory:** Caches processed message structures for the duration of a request. Bypassed if the date range includes the current day to ensure fresh data.
+- **Performance Optimizations:**
+    - **Parallel Image Downloads:** Uses `asyncio.gather()` to download multiple images concurrently (Webex & Telegram).
+    - **Parallel Date Range Fetching:** Splits large date ranges into configurable chunks (default: 7 days) that fetch in parallel (up to 5 concurrent).
+        - **Webex:** Uses `asyncio.to_thread()` to wrap synchronous API calls for true async parallelism.
+        - **Telegram:** Uses a shared client connection to avoid SQLite locking while enabling parallel chunk fetching.
+    - **Configurable Chunking:** `parallel_fetch_chunk_days` (default: 7) and `max_concurrent_fetches` (default: 5) settings in config.json.
+    - **Concurrency Control:** `asyncio.Semaphore` limits concurrent requests to prevent API overload.
+    - **Smart Deduplication:** Message IDs tracked across chunks to eliminate duplicates from overlapping time boundaries.
 
 ## 6. API & External Interactions
 - **Authentication:**

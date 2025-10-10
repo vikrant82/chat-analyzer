@@ -67,6 +67,7 @@ export const workflowUrl = document.getElementById('workflowUrl');
 
 
 let choicesInstance = null;
+let flatpickrInstance = null;
 
 export function initializeChoices() {
     if (chatSelect) {
@@ -83,6 +84,10 @@ export function initializeChoices() {
 
 export function getChoicesInstance() {
     return choicesInstance;
+}
+
+export function getFlatpickrInstance() {
+    return flatpickrInstance;
 }
 
 export function setLoadingState(buttonElement, isLoading, loadingText = 'Processing...') {
@@ -159,9 +164,11 @@ export function updateRedditWorkflowUI() {
 
 export function updateStartChatButtonState() {
     if (!startChatButton) return;
-    const datePicker = document.getElementById('dateRangePicker');
-    // More robust check for the date picker instance and selected dates
-    const validDateSelected = datePicker && datePicker._flatpickr && datePicker._flatpickr.selectedDates && datePicker._flatpickr.selectedDates.length === 2;
+    
+    // Use the stored flatpickr instance for more reliable access
+    const validDateSelected = flatpickrInstance && 
+                              flatpickrInstance.selectedDates && 
+                              flatpickrInstance.selectedDates.length === 2;
 
     let validChatSelected = false;
     if (appState.activeBackend === 'reddit') {
@@ -211,7 +218,7 @@ export function updateStartChatButtonState() {
 
 export function initializeFlatpickr() {
     const dateRangePicker = document.getElementById('dateRangePicker');
-    flatpickr(dateRangePicker, {
+    flatpickrInstance = flatpickr(dateRangePicker, {
         mode: "range",
         dateFormat: "Y-m-d",
         defaultDate: ["today", "today"],
@@ -219,6 +226,12 @@ export function initializeFlatpickr() {
             updateStartChatButtonState();
         }
     });
+    
+    // Ensure the button state is updated after initialization
+    // Use a small delay to ensure the instance is fully ready on mobile
+    setTimeout(() => {
+        updateStartChatButtonState();
+    }, 100);
 }
 
 export function showSection(sectionName) {

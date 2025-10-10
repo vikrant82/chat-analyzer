@@ -31,10 +31,10 @@ Once logged in, you will be on the "Analyze Chats" screen.
 9.  **Ask Follow-up Questions**: Use the chat input to ask follow-up questions about the analyzed data.
 10. **Clear & Start New**: Click the **"Clear & Start New"** button to clear the conversation and start a new analysis.
 11. **Download Results**: Use the Download menu to export:
-    - Text (.txt) and PDF (.pdf): text-only.
+    - Text (.txt): text-only.
+    - PDF (.pdf): includes embedded images.
     - HTML (.html): images embedded inline via data URIs.
     - ZIP (.zip): transcript.txt, transcript_with_images.html referencing images/, images files, and manifest.json metadata.
-    Use HTML or ZIP to include images in the export.
 
 ### Using Recent Chats
 
