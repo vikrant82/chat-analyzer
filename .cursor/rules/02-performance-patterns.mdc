@@ -1,0 +1,114 @@
+---
+description: Patterns for implementing parallelization and performance optimizations
+---
+# Performance Optimization Patterns
+
+## Parallelization Guidelines
+
+### 1. Parallel Image Downloads
+**Pattern**: Collect all tasks first, then use `asyncio.gather()`
+
+```python
+# Collect all download tasks
+all_tasks = [download_file(url) for url in file_urls]
+
+# Execute in parallel
+results = await asyncio.gather(*all_tasks, return_exceptions=True)
+
+# Handle results
+for result in results:
+    if isinstance(result, Exception):
+        logger.error(f"Download failed: {result}")
+    elif result is not None:
+        process_result(result)
+```
+
+**Implementation**: See [webex_client.py](mdc:clients/webex_client.py) lines 306-324
+
+### 2. Parallel Date Range Fetching with Chunking
+
+**Pattern**: Group dates → Create chunks → Limit concurrency → Deduplicate
+
+```python
+# Group dates into contiguous ranges and split large ranges
+date_ranges = group_into_contiguous_ranges(dates, max_chunk_size=7)
+
+# Use semaphore to limit concurrent requests
+semaphore = asyncio.Semaphore(max_concurrent)
+
+async def fetch_with_limit(range_days):
+    async with semaphore:
+        return await fetch_date_range(range_days)
+
+# Execute with concurrency control
+results = await asyncio.gather(*[fetch_with_limit(r) for r in date_ranges], return_exceptions=True)
+
+# Deduplicate across chunks
+seen_ids = set()
+for result in results:
+    for item in result:
+        if item.id not in seen_ids:
+            unique_items.append(item)
+            seen_ids.add(item.id)
+```
+
+### 3. Wrapping Synchronous Calls
+
+**When**: API library uses synchronous calls (like `requests.get()`)
+
+**Pattern**: Use `asyncio.to_thread()` to prevent blocking the event loop
+
+```python
+# ❌ WRONG - Blocks event loop
+response = self.api.get_messages(**params)
+
+# ✅ CORRECT - Runs in thread pool
+response = await asyncio.to_thread(self.api.get_messages, **params)
+```
+
+**Implementation**: See [webex_client.py](mdc:clients/webex_client.py) line 256
+
+### 4. Shared Client for Session-Based APIs
+
+**When**: Platform uses session files (like Telegram with SQLite)
+
+**Pattern**: Create one client, share across parallel operations
+
+```python
+# Open client once
+async with telegram_api_client(user_id) as client:
+    # Pass shared client to parallel functions
+    async def fetch_chunk(range_days, shared_client):
+        return await shared_client.iter_messages(...)
+    
+    # Parallel execution with shared client
+    results = await asyncio.gather(*[fetch_chunk(r, client) for r in ranges])
+```
+
+**Implementation**: See [telegram_client.py](mdc:clients/telegram_client.py) lines 240-420
+
+## Configuration Best Practices
+
+### Parallelization Settings
+- `parallel_fetch_chunk_days`: Default 7 (range: 3-14)
+  - Too small (1-2): Creates too many chunks, overhead
+  - Too large (>14): Reduces parallelization benefits
+- `max_concurrent_fetches`: Default 5 (range: 3-10)
+  - Too high: API rate limiting (503 errors)
+  - Too low: Under-utilizes parallelization
+
+## Common Pitfalls
+
+### ❌ DON'T:
+1. Create multiple Telegram clients in parallel (SQLite locks)
+2. Use blocking calls directly in async functions
+3. Set chunk size to 1 (too many chunks)
+4. Forget to deduplicate when chunks have overlapping time boundaries
+5. Access library internals via DOM properties (mobile compatibility issues)
+
+### ✅ DO:
+1. Use shared client for session-based auth
+2. Wrap synchronous calls in `asyncio.to_thread()`
+3. Use semaphores to limit concurrency
+4. Filter messages by date range within each chunk
+5. Store library instances in module variables for reliable access

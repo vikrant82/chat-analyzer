@@ -110,6 +110,17 @@ class RedditClient(ChatClient):
         }
         self.reddit = asyncpraw.Reddit(**self.reddit_config)
         self.session_manager = RedditSessionManager()
+        
+        # Load configuration for limits and sorting
+        self.subreddit_limit = config.get("subreddit_limit", 200)
+        self.popular_posts_limit = config.get("popular_posts_limit", 10)
+        self.user_posts_limit = config.get("user_posts_limit", 10)
+        self.subreddit_posts_limit = config.get("subreddit_posts_limit", 50)
+        self.default_sort = config.get("default_sort", "hot")
+        self.default_time_filter = config.get("default_time_filter", "week")
+        self.subreddit_sort = config.get("subreddit_sort", "subscribers")  # alphabetical, subscribers, activity
+        self.show_favorites = config.get("show_favorites", True)
+        self.favorites_limit = config.get("favorites_limit", 50)
 
     async def _get_reddit_instance(self, user_identifier: str) -> asyncpraw.Reddit:
         """
@@ -119,6 +130,51 @@ class RedditClient(ChatClient):
         if not refresh_token:
             raise Exception("Could not find refresh token for user.")
         return asyncpraw.Reddit(**self.reddit_config, refresh_token=refresh_token)
+
+    async def _fetch_posts_with_sort(self, subreddit, sort_method: str = None, time_filter: str = None, limit: int = 50) -> List:
+        """
+        Helper method to fetch posts from a subreddit with specified sorting and time filter.
+        
+        Args:
+            subreddit: The subreddit object to fetch from
+            sort_method: One of "hot", "new", "top", "controversial", "rising" (defaults to self.default_sort)
+            time_filter: One of "hour", "day", "week", "month", "year", "all" (only used for "top" and "controversial")
+            limit: Maximum number of posts to fetch
+            
+        Returns:
+            List of submission objects
+        """
+        if sort_method is None:
+            sort_method = self.default_sort
+        if time_filter is None:
+            time_filter = self.default_time_filter
+            
+        posts = []
+        
+        try:
+            if sort_method == "hot":
+                async for submission in subreddit.hot(limit=limit):
+                    posts.append(submission)
+            elif sort_method == "new":
+                async for submission in subreddit.new(limit=limit):
+                    posts.append(submission)
+            elif sort_method == "top":
+                async for submission in subreddit.top(time_filter=time_filter, limit=limit):
+                    posts.append(submission)
+            elif sort_method == "controversial":
+                async for submission in subreddit.controversial(time_filter=time_filter, limit=limit):
+                    posts.append(submission)
+            elif sort_method == "rising":
+                async for submission in subreddit.rising(limit=limit):
+                    posts.append(submission)
+            else:
+                # Default to hot if invalid sort method
+                async for submission in subreddit.hot(limit=limit):
+                    posts.append(submission)
+        except Exception as e:
+            print(f"Error fetching posts with sort={sort_method}, time_filter={time_filter}: {e}")
+            
+        return posts
 
     async def login(self, auth_details: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -162,10 +218,98 @@ class RedditClient(ChatClient):
         """
         self.session_manager.delete_session(user_identifier)
 
+    async def get_favorite_subreddits(self, user_identifier: str) -> List[Chat]:
+        """
+        Fetches user's favorited subreddits and returns them with a star icon.
+        
+        Args:
+            user_identifier: The Reddit username
+            
+        Returns:
+            List of Chat objects for favorited subreddits with ⭐ prefix
+        """
+        if not await self.is_session_valid(user_identifier):
+            raise Exception("User session is not valid.")
+
+        reddit_user_instance = await self._get_reddit_instance(user_identifier)
+        
+        favorites = []
+        
+        try:
+            favorites_with_metadata = []
+            count = 0
+            
+            # Iterate through ALL subreddits to find favorites (not limited by subreddit_limit)
+            # We use None to fetch all subscriptions, then limit how many favorites we DISPLAY
+            async for sub in reddit_user_instance.user.subreddits(limit=None):
+                # Check if this subreddit is favorited
+                is_favorited = getattr(sub, 'user_has_favorited', False)
+                
+                if is_favorited:
+                    try:
+                        # Get subscriber count and activity indicator
+                        subscribers = getattr(sub, 'subscribers', 0) or 0
+                        active_users = getattr(sub, 'active_user_count', 0) or 0
+                        
+                        favorites_with_metadata.append({
+                            'subreddit': sub,
+                            'name': sub.display_name,
+                            'subscribers': subscribers,
+                            'active_users': active_users
+                        })
+                        
+                        count += 1
+                        if count >= self.favorites_limit:
+                            break
+                    except Exception as e:
+                        # If metadata fetch fails, still add the favorite
+                        favorites_with_metadata.append({
+                            'subreddit': sub,
+                            'name': sub.display_name,
+                            'subscribers': 0,
+                            'active_users': 0
+                        })
+                        count += 1
+                        if count >= self.favorites_limit:
+                            break
+            
+            # Sort favorites based on configuration (same as regular subreddits)
+            if self.subreddit_sort == "alphabetical":
+                favorites_with_metadata.sort(key=lambda x: x['name'].lower())
+            elif self.subreddit_sort == "subscribers":
+                favorites_with_metadata.sort(key=lambda x: x['subscribers'], reverse=True)
+            elif self.subreddit_sort == "activity":
+                favorites_with_metadata.sort(key=lambda x: x['active_users'], reverse=True)
+            else:
+                # Default to subscribers if invalid option
+                favorites_with_metadata.sort(key=lambda x: x['subscribers'], reverse=True)
+            
+            # Build chat list with star icon and member counts
+            for sub_data in favorites_with_metadata:
+                # Format subscriber count (K, M notation)
+                subscribers = sub_data['subscribers']
+                if subscribers >= 1_000_000:
+                    sub_display = f"{subscribers / 1_000_000:.1f}M"
+                elif subscribers >= 1_000:
+                    sub_display = f"{subscribers / 1_000:.1f}K"
+                else:
+                    sub_display = str(subscribers)
+                
+                # Add star emoji prefix for favorites
+                title = f"⭐ Subreddit: {sub_data['name']} [{sub_display} members]"
+                favorites.append(Chat(id=f"sub_{sub_data['name']}", title=title, type="subreddit"))
+                
+        except Exception as e:
+            print(f"Could not fetch favorite subreddits: {e}")
+        
+        return favorites
+
     async def get_chats(self, user_identifier: str) -> List[Chat]:
         """
-        Fetches a structured list of subscribed subreddits, popular posts,
-        and user's own posts for the hybrid dropdown.
+        Fetches a structured list of favorited subreddits, subscribed subreddits, 
+        popular posts, and user's own posts for the hybrid dropdown.
+        
+        Favorites appear first with a ⭐ icon if show_favorites is enabled.
         """
         if not await self.is_session_valid(user_identifier):
             raise Exception("User session is not valid.")
@@ -173,37 +317,127 @@ class RedditClient(ChatClient):
         reddit_user_instance = await self._get_reddit_instance(user_identifier)
 
         chats = []
+        favorite_subreddit_names = set()
 
-        # 1. Get subscribed subreddits
+        # 0. Get favorite subreddits first (if enabled)
+        if self.show_favorites:
+            try:
+                favorites = await self.get_favorite_subreddits(user_identifier)
+                chats.extend(favorites)
+                # Track favorite names to avoid duplicates in regular list
+                for fav in favorites:
+                    # Extract subreddit name from id (format: "sub_subredditname")
+                    if fav.id.startswith("sub_"):
+                        favorite_subreddit_names.add(fav.id.replace("sub_", ""))
+            except Exception as e:
+                print(f"Could not fetch favorite subreddits: {e}")
+
+        # 1. Get subscribed subreddits with smart sorting (excluding favorites)
         try:
-            async for sub in reddit_user_instance.user.subreddits(limit=200):
-                chats.append(Chat(id=f"sub_{sub.display_name}", title=f"Subreddit: {sub.display_name}", type="subreddit"))
+            subreddits_with_metadata = []
+            async for sub in reddit_user_instance.user.subreddits(limit=self.subreddit_limit):
+                # Skip if already shown in favorites
+                if sub.display_name in favorite_subreddit_names:
+                    continue
+                    
+                # Fetch subreddit details for sorting metadata
+                try:
+                    # Get subscriber count and activity indicator
+                    subscribers = getattr(sub, 'subscribers', 0) or 0
+                    active_users = getattr(sub, 'active_user_count', 0) or 0
+                    
+                    subreddits_with_metadata.append({
+                        'subreddit': sub,
+                        'name': sub.display_name,
+                        'subscribers': subscribers,
+                        'active_users': active_users
+                    })
+                except Exception as e:
+                    # If metadata fetch fails, still add the subreddit
+                    subreddits_with_metadata.append({
+                        'subreddit': sub,
+                        'name': sub.display_name,
+                        'subscribers': 0,
+                        'active_users': 0
+                    })
+            
+            # Sort subreddits based on configuration
+            if self.subreddit_sort == "alphabetical":
+                subreddits_with_metadata.sort(key=lambda x: x['name'].lower())
+            elif self.subreddit_sort == "subscribers":
+                subreddits_with_metadata.sort(key=lambda x: x['subscribers'], reverse=True)
+            elif self.subreddit_sort == "activity":
+                subreddits_with_metadata.sort(key=lambda x: x['active_users'], reverse=True)
+            else:
+                # Default to subscribers if invalid option
+                subreddits_with_metadata.sort(key=lambda x: x['subscribers'], reverse=True)
+            
+            # Build chat list with rich metadata
+            for sub_data in subreddits_with_metadata:
+                # Format subscriber count (K, M notation)
+                subscribers = sub_data['subscribers']
+                if subscribers >= 1_000_000:
+                    sub_display = f"{subscribers / 1_000_000:.1f}M"
+                elif subscribers >= 1_000:
+                    sub_display = f"{subscribers / 1_000:.1f}K"
+                else:
+                    sub_display = str(subscribers)
+                
+                title = f"Subreddit: {sub_data['name']} [{sub_display} members]"
+                chats.append(Chat(id=f"sub_{sub_data['name']}", title=title, type="subreddit"))
+                
         except Exception as e:
             print(f"Could not fetch subscribed subreddits: {e}")
 
 
-        # 2. Get popular posts
+        # 2. Get popular posts using configured sort method
         try:
             popular_subreddit = await reddit_user_instance.subreddit("popular")
-            async for submission in popular_subreddit.hot(limit=10):
-                chats.append(Chat(id=submission.id, title=f"Popular: {submission.title}", type="post"))
+            popular_posts = await self._fetch_posts_with_sort(
+                popular_subreddit, 
+                sort_method=self.default_sort,
+                time_filter=self.default_time_filter,
+                limit=self.popular_posts_limit
+            )
+            for submission in popular_posts:
+                # Add score and comment count for better context
+                chats.append(Chat(
+                    id=submission.id, 
+                    title=f"Popular: {submission.title} [{submission.score}⬆ {submission.num_comments}💬]", 
+                    type="post"
+                ))
         except Exception as e:
             print(f"Could not fetch popular posts: {e}")
 
-        # 3. Get user's own recent posts
+        # 3. Get user's own recent posts (always sorted by new)
         try:
             user = await reddit_user_instance.user.me()
             if user:
-                async for submission in user.submissions.new(limit=10):
-                    chats.append(Chat(id=submission.id, title=f"My Post: {submission.title}", type="post"))
+                count = 0
+                async for submission in user.submissions.new(limit=self.user_posts_limit):
+                    chats.append(Chat(
+                        id=submission.id, 
+                        title=f"My Post: {submission.title} [{submission.score}⬆ {submission.num_comments}💬]", 
+                        type="post"
+                    ))
+                    count += 1
         except Exception as e:
             print(f"Could not fetch user's own posts: {e}")
 
         return chats
 
-    async def get_posts_for_subreddit(self, user_identifier: str, subreddit_name: str) -> List[Chat]:
+    async def get_posts_for_subreddit(self, user_identifier: str, subreddit_name: str, sort_method: str = None, time_filter: str = None) -> List[Chat]:
         """
-        Fetches the top posts for a given subreddit.
+        Fetches posts for a given subreddit with configurable sorting.
+        
+        Args:
+            user_identifier: The user ID
+            subreddit_name: Name of the subreddit
+            sort_method: Optional override for sort method (hot, new, top, controversial, rising)
+            time_filter: Optional override for time filter (hour, day, week, month, year, all)
+            
+        Returns:
+            List of Chat objects representing posts with metadata
         """
         if not await self.is_session_valid(user_identifier):
             raise Exception("User session is not valid.")
@@ -212,8 +446,31 @@ class RedditClient(ChatClient):
 
         chats = []
         subreddit = await reddit_user_instance.subreddit(subreddit_name)
-        async for submission in subreddit.hot(limit=50):
-            chats.append(Chat(id=submission.id, title=submission.title, type="post"))
+        
+        # Use configured defaults if not overridden
+        posts = await self._fetch_posts_with_sort(
+            subreddit,
+            sort_method=sort_method,
+            time_filter=time_filter,
+            limit=self.subreddit_posts_limit
+        )
+        
+        for submission in posts:
+            # Calculate engagement score for better insights
+            engagement_ratio = submission.num_comments / max(submission.score, 1)
+            
+            # Add rich metadata to help users identify interesting posts
+            title_with_metadata = (
+                f"{submission.title} "
+                f"[{submission.score}⬆ {submission.num_comments}💬 "
+                f"by u/{submission.author.name if submission.author else '[deleted]'}]"
+            )
+            
+            chats.append(Chat(
+                id=submission.id, 
+                title=title_with_metadata,
+                type="post"
+            ))
         
         return chats
 

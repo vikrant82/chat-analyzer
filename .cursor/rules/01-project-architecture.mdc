@@ -1,0 +1,47 @@
+---
+alwaysApply: true
+---
+# Chat Analyzer: Project Architecture
+
+## Core Architecture Pattern
+This project follows a **router-service-client** layered architecture:
+- **Routers** (`routers/`): FastAPI endpoint definitions
+- **Services** (`services/`): Business logic layer
+- **Clients** (`clients/`): Platform-specific API integrations (Telegram, Webex, Reddit)
+
+## Key Technical Decisions
+
+### Frontend
+- **Vanilla JavaScript modules** (no framework) - see `static/js/`
+- **State management**: Centralized in [state.js](mdc:static/js/state.js)
+- **UI components**: Exported from [ui.js](mdc:static/js/ui.js)
+- Store instances (flatpickr, Choices.js) in module variables for reliable cross-module access
+- Avoid accessing library internals via DOM properties (e.g., `element._flatpickr`) - use stored instances instead
+
+### Backend
+- **Async-first**: All I/O operations must be async
+- **Factory pattern**: Use `get_client(backend)` in [clients/factory.py](mdc:clients/factory.py)
+- **Dependency injection**: Use FastAPI's `Depends()` for user authentication
+
+## Platform-Specific Notes
+
+### Webex ([webex_client.py](mdc:clients/webex_client.py))
+- Token-based authentication (stateless)
+- Synchronous `requests` library for API calls - **must wrap in `asyncio.to_thread()`** for parallelization
+- Supports multiple concurrent client instances
+
+### Telegram ([telegram_client.py](mdc:clients/telegram_client.py))
+- SQLite session files (stateful)
+- **Critical**: Use single shared client connection to avoid "database is locked" errors
+- Pass shared client to parallel functions instead of creating new instances
+- Already async (Telethon library)
+
+### Reddit ([reddit_client.py](mdc:clients/reddit_client.py))
+- OAuth-based, uses asyncpraw
+- Different data model (posts/comments vs messages)
+
+## File Locations
+- Configuration: [config.json](mdc:config.json) (see [example-config.json](mdc:example-config.json))
+- Session storage: `sessions/` directory
+- Cache storage: `cache/<platform>/<user>/<chat>/<date>.json`
+- Bot configs: [bots.json](mdc:bots.json)

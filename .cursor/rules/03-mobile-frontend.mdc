@@ -1,0 +1,93 @@
+---
+globs: static/js/*.js,static/index.html
+---
+# Mobile Compatibility Guidelines
+
+## Library Instance Management
+
+### Problem
+Mobile browsers (especially Android) may have timing issues or inconsistent property attachment for third-party libraries.
+
+### Solution
+**Always store library instances in module variables** instead of accessing via DOM properties.
+
+#### ❌ WRONG - Direct DOM property access:
+```javascript
+const datePicker = document.getElementById('dateRangePicker')._flatpickr;
+```
+
+#### ✅ CORRECT - Stored instance:
+```javascript
+// In ui.js
+let flatpickrInstance = null;
+
+export function initializeFlatpickr() {
+    flatpickrInstance = flatpickr(element, options);
+    return flatpickrInstance;
+}
+
+export function getFlatpickrInstance() {
+    return flatpickrInstance;
+}
+
+// In other files
+import { getFlatpickrInstance } from './ui.js';
+const datePicker = getFlatpickrInstance();
+```
+
+**Implementation**: See [ui.js](mdc:static/js/ui.js) lines 70-92
+
+## LocalStorage Best Practices
+
+### Store as Strings
+Always store boolean values as string `'true'` or `'false'`:
+
+```javascript
+// ❌ WRONG - Stores actual boolean
+localStorage.setItem(KEY, checkbox.checked);
+
+// ✅ CORRECT - Stores as string
+localStorage.setItem(KEY, checkbox.checked ? 'true' : 'false');
+
+// Reading
+const value = localStorage.getItem(KEY);
+checkbox.checked = value === 'true';
+```
+
+## Checkbox State Management
+
+### Remove hardcoded HTML attributes
+Let JavaScript control initial state based on saved preferences:
+
+```html
+<!-- ❌ WRONG - Always checked on load -->
+<input type="checkbox" id="myCheckbox" checked>
+
+<!-- ✅ CORRECT - JavaScript sets initial state -->
+<input type="checkbox" id="myCheckbox">
+```
+
+```javascript
+// JavaScript initialization
+const saved = localStorage.getItem(KEY);
+checkbox.checked = saved === null ? false : saved === 'true';
+```
+
+## Form Data Submission
+
+### Always read from actual DOM elements
+Never hardcode values in API request payloads:
+
+```javascript
+// ❌ WRONG
+const payload = {
+    enabled: true,  // Hardcoded!
+    value: someValue
+};
+
+// ✅ CORRECT
+const payload = {
+    enabled: checkbox.checked,  // Read from element
+    value: input.value
+};
+```

@@ -44,12 +44,16 @@ export async function handleLoadChats() {
         if (chats && chats.length > 0) {
             if (appState.activeBackend === 'reddit') {
                 const groupedChats = {
+                    'Favorites': [],
                     'Subscribed': [],
                     'Popular': [],
                     'My Posts': []
                 };
                 chats.forEach(chat => {
-                    if (chat.title.startsWith('Subreddit:')) {
+                    if (chat.title.startsWith('⭐ Subreddit:')) {
+                        // Keep the star in the label for visual distinction
+                        groupedChats['Favorites'].push({ value: chat.id, label: chat.title.replace('⭐ Subreddit: ', '⭐ ') });
+                    } else if (chat.title.startsWith('Subreddit:')) {
                         groupedChats['Subscribed'].push({ value: chat.id, label: chat.title.replace('Subreddit: ', '') });
                     } else if (chat.title.startsWith('Popular:')) {
                         groupedChats['Popular'].push({ value: chat.id, label: chat.title.replace('Popular: ', '') });
@@ -58,12 +62,14 @@ export async function handleLoadChats() {
                     }
                 });
 
-                const choices = Object.keys(groupedChats).map(group => {
-                    return {
-                        label: group,
-                        choices: groupedChats[group]
-                    };
-                });
+                const choices = Object.keys(groupedChats)
+                    .filter(group => groupedChats[group].length > 0)  // Only include non-empty groups
+                    .map(group => {
+                        return {
+                            label: group,
+                            choices: groupedChats[group]
+                        };
+                    });
                 choicesInstance.setChoices(choices, 'value', 'label', false);
 
             } else {

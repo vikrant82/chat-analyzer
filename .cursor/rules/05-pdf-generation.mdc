@@ -1,0 +1,89 @@
+---
+globs: services/download_service.py
+---
+# PDF Generation with Image Embedding
+
+## Key Requirements
+
+The `create_pdf()` function in [download_service.py](mdc:services/download_service.py) must:
+1. Accept `messages_list` and `image_items` (not just text)
+2. Embed images directly in the PDF
+3. Handle various image formats (RGBA, LA, P, RGB)
+4. Scale images to fit page margins
+5. Support threaded conversations with indentation
+
+## Image Processing Pattern
+
+```python
+from PIL import Image
+from io import BytesIO
+import tempfile
+import base64
+
+# Decode base64 image
+img_data = base64.b64decode(item['data_base64'])
+
+# Convert to RGB if needed (FPDF requirement)
+img = Image.open(BytesIO(img_data))
+if img.mode in ('RGBA', 'LA', 'P'):
+    background = Image.new('RGB', img.size, (255, 255, 255))
+    if img.mode == 'P':
+        img = img.convert('RGBA')
+    background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+    img = background
+
+# Save to temp file for FPDF
+with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp:
+    img.save(tmp.name, 'PNG')
+    
+    # Calculate dimensions (max 180mm width, 100mm height)
+    img_width_mm = img.width * 0.264583  # 96 DPI to mm
+    img_height_mm = img.height * 0.264583
+    scale = min(180 / img_width_mm, 100 / img_height_mm, 1.0)
+    
+    # Add to PDF
+    pdf.image(tmp.name, w=img_width_mm * scale)
+    
+    # Cleanup
+    os.unlink(tmp.name)
+```
+
+## Thread-Aware Formatting
+
+```python
+in_thread = False
+for msg in messages:
+    is_reply = msg.thread_id is not None
+    
+    # Thread markers
+    if is_reply and not in_thread:
+        pdf.cell(0, 5, "--- Thread Started ---", 0, 1)
+        in_thread = True
+    elif not is_reply and in_thread:
+        pdf.cell(0, 5, "--- Thread Ended ---", 0, 1)
+        in_thread = False
+    
+    # Indent replies
+    indent = 10 if is_reply else 0
+    pdf.set_x(10 + indent)
+    pdf.cell(0, 5, f"{msg.author.name} at {msg.timestamp}", 0, 1)
+```
+
+## Error Handling
+
+Always include fallback for failed image embedding:
+
+```python
+try:
+    # Image processing and embedding
+    pdf.image(...)
+except Exception as e:
+    # Fallback to text placeholder
+    pdf.cell(0, 5, f"[Image - Could not embed: {str(e)[:50]}]", 0, 1)
+```
+
+## Dependencies
+
+Required libraries in [requirements.txt](mdc:requirements.txt):
+- `fpdf2` - PDF generation
+- `Pillow` - Image processing

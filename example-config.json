@@ -25,6 +25,21 @@
     "parallel_fetch_chunk_days": 7,
     "max_concurrent_fetches": 5
   },
+  "reddit": {
+    "client_id": "YOUR_REDDIT_CLIENT_ID",
+    "client_secret": "YOUR_REDDIT_CLIENT_SECRET",
+    "redirect_uri": "http://localhost:8000/api/auth/callback/reddit",
+    "user_agent": "ChatAnalyzer/1.0",
+    "subreddit_limit": 200,
+    "popular_posts_limit": 10,
+    "user_posts_limit": 10,
+    "subreddit_posts_limit": 50,
+    "default_sort": "hot",
+    "default_time_filter": "week",
+    "subreddit_sort": "subscribers",
+    "show_favorites": true,
+    "favorites_limit": 50
+  },
   "google_ai": {
     "api_key": "YOUR_GOOGLE_AI_API_KEY",
     "default_model": "gemini-1.5-flash"

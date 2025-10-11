@@ -1,0 +1,134 @@
+---
+globs: clients/*.py
+description: Guidelines for implementing new chat platform clients or modifying existing ones
+---
+# Chat Platform Client Implementation Guide
+
+## Base Client Interface
+
+All platform clients must implement [ChatClient](mdc:clients/base_client.py) interface:
+- `async def login()`: Initiate authentication
+- `async def verify()`: Complete authentication (if needed)
+- `async def logout()`: Clean up session
+- `async def get_chats()`: List available chats
+- `async def get_messages()`: Fetch messages for a date range
+- `async def is_session_valid()`: Check if session is still active
+
+## Message Fetching Optimization Patterns
+
+### For Token-Based Auth (like Webex)
+
+Use `asyncio.to_thread()` for synchronous API calls and support multiple concurrent clients:
+
+```python
+async def fetch_date_range(range_days):
+    params = {"room_id": chat_id, "max": 1000}
+    params['before'] = range_end_utc.isoformat()
+    
+    range_messages = []
+    while oldest_message > range_start:
+        # Wrap sync call for async parallelization
+        batch = await asyncio.to_thread(self.api.get_messages, **params)
+        
+        # Filter to chunk's date range
+        for msg in batch:
+            if range_start <= msg_date <= range_end:
+                range_messages.append(msg)
+        
+        if len(batch) < 1000:
+            break
+    
+    return range_messages
+
+# Parallel execution
+semaphore = asyncio.Semaphore(max_concurrent)
+results = await asyncio.gather(*[fetch_with_semaphore(r) for r in ranges])
+```
+
+### For Session-Based Auth (like Telegram)
+
+Use a **single shared client** to avoid database locks:
+
+```python
+async with telegram_api_client(user_id) as client:
+    # Resolve entity once
+    entity = await client.get_entity(chat_id)
+    
+    async def fetch_date_range(range_days, shared_client):
+        range_messages = []
+        async for message in shared_client.iter_messages(
+            entity, 
+            offset_date=range_end_utc
+        ):
+            if message.date < range_start_utc:
+                break
+            range_messages.append(message)
+        return range_messages
+    
+    # Parallel execution with shared client
+    semaphore = asyncio.Semaphore(max_concurrent)
+    results = await asyncio.gather(*[
+        fetch_with_semaphore(r, client) for r in ranges
+    ])
+```
+
+## Message Deduplication
+
+Always deduplicate when combining results from multiple parallel chunks:
+
+```python
+seen_ids = set()
+unique_messages = []
+
+for result in fetch_results:
+    for msg in result:
+        if msg.id not in seen_ids:
+            unique_messages.append(msg)
+            seen_ids.add(msg.id)
+
+logger.info(f"After deduplication: {len(unique_messages)} unique messages")
+```
+
+## Caching Strategy
+
+### Per-Day File-Based Caching
+```python
+def _get_cache_path(self, user_id: str, chat_id: str, day: datetime) -> str:
+    safe_user = ''.join(filter(str.isalnum, user_id))
+    safe_chat = ''.join(filter(str.isalnum, chat_id))
+    cache_dir = f"cache/{platform}/{safe_user}/{safe_chat}"
+    os.makedirs(cache_dir, exist_ok=True)
+    return f"{cache_dir}/{day.strftime('%Y-%m-%d')}.json"
+```
+
+### Cache Loading Logic
+```python
+# Check cache first
+for day in date_range:
+    if enable_caching and day < today and cache_exists(day):
+        messages.extend(load_from_cache(day))
+    else:
+        days_to_fetch.append(day)
+
+# Fetch missing days
+if days_to_fetch:
+    fetched = await fetch_from_api(days_to_fetch)
+    
+    # Cache fetched data
+    for day in days_to_fetch:
+        if day < today:
+            save_to_cache(day, messages_for_day)
+```
+
+## Configuration Pattern
+
+Load configuration in class `__init__`:
+
+```python
+class MyClient(ChatClient):
+    def __init__(self):
+        config = load_config().get('my_platform', {})
+        self.api_key = config.get('api_key')
+        self.parallel_fetch_chunk_days = config.get('parallel_fetch_chunk_days', 7)
+        self.max_concurrent_fetches = config.get('max_concurrent_fetches', 5)
+```

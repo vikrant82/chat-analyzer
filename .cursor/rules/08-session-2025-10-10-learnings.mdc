@@ -1,0 +1,107 @@
+---
+alwaysApply: false
+description: Specific bugs fixed and lessons learned from 2025-10-10 session
+---
+# Session 2025-10-10: Bug Fixes and Performance Enhancements
+
+## Critical Bugs Fixed
+
+### 1. Mobile "Start Chat" Button (Android)
+**File**: [ui.js](mdc:static/js/ui.js)  
+**Issue**: Button wouldn't enable on mobile devices  
+**Root Cause**: Accessing `element._flatpickr` unreliable on mobile browsers  
+**Fix**: Store flatpickr instance in module variable, provide getter function  
+**Lines**: 70-92, 165-217
+
+### 2. Image Processing Checkbox Ignored
+**Files**: [chat.js](mdc:static/js/chat.js), [index.html](mdc:static/index.html), [main.js](mdc:static/js/main.js)  
+**Issue**: Backend always received `enabled: true` regardless of checkbox state  
+**Root Causes**:
+- Hardcoded `enabled: true` in download payload (chat.js:354)
+- `checked` attribute in HTML (index.html:141)
+- Boolean stored in localStorage instead of string (main.js:384)
+**Fix**: Read from actual checkbox, remove HTML attribute, store as string
+
+### 3. Parallel Fetching Not Actually Parallel
+**File**: [webex_client.py](mdc:clients/webex_client.py)  
+**Issue**: Chunks ran sequentially despite `asyncio.gather()`  
+**Root Cause**: `self.api.get_messages()` uses synchronous `requests.get()` which blocks event loop  
+**Fix**: Wrap in `asyncio.to_thread()` (line 256)
+
+### 4. Message Duplication (83% duplicates!)
+**File**: [webex_client.py](mdc:clients/webex_client.py)  
+**Issue**: Same messages appeared multiple times  
+**Root Cause**: Chunks fetched from "now" instead of chunk boundaries, causing overlap  
+**Fix**: 
+- Set `params['before'] = range_end_utc` for each chunk (line 249)
+- Filter messages by date range (lines 266-274)
+- Deduplicate by message ID (lines 303-311)
+
+### 5. Stuck at 1000 Messages Per Chunk
+**File**: [webex_client.py](mdc:clients/webex_client.py)  
+**Issue**: Pagination stopped after first 1000 messages even when more existed  
+**Root Cause**: Condition `if len(batch) < 2: break` too aggressive  
+**Fix**: Changed to `if len(batch) < 1000: break` (line 274)  
+**Reasoning**: API returns max 1000; only stop on partial batch
+
+### 6. Telegram SQLite Database Locked
+**File**: [telegram_client.py](mdc:clients/telegram_client.py)  
+**Issue**: "database is locked" errors when trying to parallelize  
+**Root Cause**: Multiple TelegramClient instances trying to write to same SQLite session  
+**Fix**: Use single shared client connection for all chunks (lines 240-420)  
+**Result**: Parallel chunk fetching now works without database conflicts
+
+## Performance Achievements
+
+### Before Session:
+- Images downloaded sequentially: 15 sec for 5 images
+- Date ranges fetched sequentially: 30+ sec for 21 days
+- Webex parallelization blocked by synchronous calls
+- Telegram couldn't parallelize due to SQLite locks
+- PDFs were text-only
+
+### After Session:
+- Images: ~3 sec for 5 images (**5x faster**)
+- Webex ranges: ~10 sec for 21 days (**3x faster**)
+- Telegram ranges: ~10 sec for 21 days (**3x faster** with shared client)
+- PDFs include embedded images with smart scaling
+
+## Key Technical Insights
+
+1. **Mobile Safari/Chrome**: DOM property attachment timing differs from desktop
+2. **asyncio.gather()**: Doesn't help if underlying calls are blocking
+3. **SQLite**: Can't handle concurrent writes from multiple connections
+4. **Shared client pattern**: Enables parallelization even with session-based auth
+5. **Semaphore**: Essential for preventing API overload (max 5 concurrent)
+6. **Deduplication**: Required when chunks have potential time overlap
+7. **Date filtering**: Each chunk must only keep messages in its specific window
+
+## Dependencies Added
+
+- `Pillow` - For PDF image processing (RGB conversion, scaling)
+
+## Configuration Additions
+
+New optional settings in [config.json](mdc:config.json):
+- `parallel_fetch_chunk_days`: Default 7, range 3-14
+- `max_concurrent_fetches`: Default 5, range 3-10
+
+## Files Modified This Session
+
+**Frontend** (7 files):
+- static/js/ui.js, main.js, chat.js
+- static/index.html
+
+**Backend** (4 files):
+- clients/webex_client.py, telegram_client.py
+- services/download_service.py
+- routers/downloads.py
+
+**Configuration** (2 files):
+- requirements.txt (added Pillow)
+- example-config.json (added parallel settings)
+
+**Documentation** (7 files):
+- readme.md, docs/overview.md, docs/installation.md
+- docs/user_guide.md, docs/webex_bot_guide.md, docs/telegram_bot_guide.md
+- docs/last_session.md

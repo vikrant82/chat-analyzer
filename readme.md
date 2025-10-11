@@ -52,7 +52,9 @@ For detailed information on how to set up, configure, and use the application, p
 -   **[User Guide](./docs/user_guide.md)**: A complete walkthrough of the application's features.
 -   **[Webex Bot Guide](./docs/webex_bot_guide.md)**: How to create and use the Webex bot.
 -   **[Telegram Bot Guide](./docs/telegram_bot_guide.md)**: How to create and use the Telegram bot.
--   **[Reddit Guide](./docs/reddit_guide.md)**: How to connect and use the Reddit integration.
+-   **[Reddit Guide](./docs/reddit/reddit_guide.md)**: How to connect and use the Reddit integration.
+-   **[Reddit Sorting & Filtering](./docs/reddit/reddit_sorting_guide.md)**: Advanced configuration for Reddit post sorting and filtering.
+-   **[Reddit Favorites](./docs/reddit/reddit_favorites_feature.md)**: Using Reddit favorites for quick subreddit access.
 -   **[Technical Overview](./docs/overview.md)**: A high-level look at the project's architecture.
 
 ## Bot Management CLI
