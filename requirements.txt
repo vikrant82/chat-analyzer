@@ -10,3 +10,10 @@ fpdf2
 Pillow
 tzdata
 asyncpraw
+
+
+# Testing
+pytest
+pytest-mock
+pytest-asyncio
+respx

@@ -49,3 +49,4 @@ Thumbs.db
 *.swo
 
 bots.json
+.coverage
