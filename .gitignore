@@ -55,7 +55,9 @@ Thumbs.db
 .cursor/
 .clinerules/
 .kilocode/
+.kilocodemodes
 .roo/
+.roomodes
 .aider*
 .windsurf/
 .continue/
