@@ -2,6 +2,9 @@
 cache/
 sessions/
 config.json
+*.session
+docs/last_session.md
+docs/SESSION_COMPLETE.md
 
 # Logs
 *.log
@@ -47,6 +50,18 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# AI Assistant Tools
+.cursor/
+.clinerules/
+.kilocode/
+.roo/
+.aider*
+.windsurf/
+.continue/
+
+# Testing
+.pytest_cache/
 
 bots.json
 .coverage
