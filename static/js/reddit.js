@@ -50,12 +50,17 @@ export function initializeRedditPostChoices() {
             itemSelectText: 'Select',
             shouldSort: false,
         });
-        // Add event listener to update button state when a post is selected
+        // Add event listeners to update button state when a post is selected
+        // Listen to both native change event AND Choices.js-specific events for Android compatibility
         postSelect.addEventListener('change', updateStartChatButtonState);
+        postSelect.addEventListener('addItem', updateStartChatButtonState);
+        postSelect.addEventListener('choice', updateStartChatButtonState);
     }
     const subredditSelect = document.getElementById('chatSelect');
     if (subredditSelect) {
+        // Listen to both native and Choices.js-specific events for Android compatibility
         subredditSelect.addEventListener('change', updateStartChatButtonState);
+        subredditSelect.addEventListener('addItem', updateStartChatButtonState);
     }
 }
 

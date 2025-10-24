@@ -347,7 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeChoices();
     const chatSelect = document.getElementById('chatSelect');
     if (chatSelect) {
-        chatSelect.addEventListener('change', () => {
+        const chatChangeHandler = () => {
             appState.conversation = [];
             appState.currentChatId = null; // Clear active chat ID
             if (chatWindow) chatWindow.innerHTML = '';
@@ -363,7 +363,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 initialQuestion.value = '';
             }
             updateStartChatButtonState();
-        });
+        };
+        // Listen to both native and Choices.js-specific events for Android compatibility
+        chatSelect.addEventListener('change', chatChangeHandler);
+        chatSelect.addEventListener('addItem', chatChangeHandler);
     }
     
     initializeFlatpickr();

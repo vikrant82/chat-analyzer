@@ -17,13 +17,14 @@ export async function handleLoadChats() {
     // Remove previous listener to avoid duplicates
     const redditListener = appState.redditListener;
     if (redditListener) {
-        chatSelect.removeEventListener('change', redditListener);
+        chatSelect.removeEventListener('addItem', redditListener);
     }
 
     if (backend === 'reddit') {
         initializeRedditPostChoices();
         const newRedditListener = handleRedditChatSelection;
-        chatSelect.addEventListener('change', newRedditListener);
+        // Use Choices.js-specific event for Android compatibility
+        chatSelect.addEventListener('addItem', newRedditListener);
         appState.redditListener = newRedditListener;
     } else {
         const redditPostSelectGroup = document.getElementById('redditPostSelectGroup');
