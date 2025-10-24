@@ -59,7 +59,16 @@ class ButtonStateManager {
                 // Valid Reddit URL must be entered
                 const redditUrlInput = document.getElementById('redditUrlInput');
                 const url = redditUrlInput ? redditUrlInput.value.trim() : '';
-                return url.includes('comments/');
+                
+                // More lenient validation: just check if it's a non-empty URL that looks like Reddit
+                const isValid = url.length > 0 && (
+                    url.includes('reddit.com') || 
+                    url.includes('comments/') ||
+                    url.includes('redd.it')
+                );
+                
+                console.log('Reddit URL validation:', { url, isValid });
+                return isValid;
             }
             return false;
         } else {

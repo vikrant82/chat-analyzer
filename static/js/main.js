@@ -415,17 +415,68 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const redditUrlInput = document.getElementById('redditUrlInput');
+    const redditUrlHelper = document.getElementById('redditUrlHelper');
+    
     if (redditUrlInput) {
-        redditUrlInput.addEventListener('input', updateStartChatButtonState);
-        redditUrlInput.addEventListener('paste', updateStartChatButtonState);
+        // Function to validate and provide visual feedback
+        const validateRedditUrl = () => {
+            const url = redditUrlInput.value.trim();
+            const isValid = url.length > 0 && (
+                url.includes('reddit.com') || 
+                url.includes('comments/') ||
+                url.includes('redd.it')
+            );
+            
+            // Visual feedback
+            if (url.length > 0) {
+                if (isValid) {
+                    redditUrlInput.style.borderColor = 'var(--success-color)';
+                    if (redditUrlHelper) {
+                        redditUrlHelper.textContent = '✓ Valid Reddit URL';
+                        redditUrlHelper.style.color = 'var(--success-color)';
+                        redditUrlHelper.style.display = 'block';
+                    }
+                } else {
+                    redditUrlInput.style.borderColor = 'var(--error-color)';
+                    if (redditUrlHelper) {
+                        redditUrlHelper.textContent = '✗ Please enter a valid Reddit URL';
+                        redditUrlHelper.style.color = 'var(--error-color)';
+                        redditUrlHelper.style.display = 'block';
+                    }
+                }
+            } else {
+                redditUrlInput.style.borderColor = '';
+                if (redditUrlHelper) {
+                    redditUrlHelper.style.display = 'none';
+                }
+            }
+            
+            updateStartChatButtonState();
+        };
+        
+        // Listen to multiple events for better mobile compatibility (especially Android)
+        eventManager.register(redditUrlInput, 'input', validateRedditUrl, 'reddit');
+        eventManager.register(redditUrlInput, 'change', validateRedditUrl, 'reddit');
+        eventManager.register(redditUrlInput, 'paste', () => {
+            // Delay to allow paste to complete
+            setTimeout(validateRedditUrl, 10);
+        }, 'reddit');
+        eventManager.register(redditUrlInput, 'keyup', validateRedditUrl, 'reddit');
+        eventManager.register(redditUrlInput, 'blur', validateRedditUrl, 'reddit');
     }
 
     // Use eventManager for cleaner event registration and automatic cleanup
     if (workflowSubreddit) {
-        eventManager.register(workflowSubreddit, 'change', updateRedditWorkflowUI, 'reddit');
+        eventManager.register(workflowSubreddit, 'change', () => {
+            updateRedditWorkflowUI();
+            updateStartChatButtonState(); // Explicitly update button state
+        }, 'reddit');
     }
     if (workflowUrl) {
-        eventManager.register(workflowUrl, 'change', updateRedditWorkflowUI, 'reddit');
+        eventManager.register(workflowUrl, 'change', () => {
+            updateRedditWorkflowUI();
+            updateStartChatButtonState(); // Explicitly update button state
+        }, 'reddit');
     }
 
     if (backendSelect) {
