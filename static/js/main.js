@@ -15,6 +15,7 @@ import { handleLogin, handleVerify, handleFullLogout, checkSessionOnLoad, handle
 import { handleLoadChats, callChatApi, handleDownloadChat, loadModels } from './chat.js';
 import { handleRegisterBot, loadBots } from './bot.js';
 import { getPostChoicesInstance } from './reddit.js';
+import { eventManager } from './eventManager.js';
 
 const RECENT_CHATS_KEY = 'chat_analyzer_recent_chats';
 const MAX_RECENT_CHATS = 10;
@@ -346,7 +347,9 @@ document.addEventListener('DOMContentLoaded', () => {
     
     initializeChoices();
     const chatSelect = document.getElementById('chatSelect');
-    if (chatSelect) {
+    const choicesInstance = getChoicesInstance();
+    
+    if (chatSelect && choicesInstance) {
         const chatChangeHandler = () => {
             appState.conversation = [];
             appState.currentChatId = null; // Clear active chat ID
@@ -364,9 +367,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             updateStartChatButtonState();
         };
-        // Listen to both native and Choices.js-specific events for Android compatibility
-        chatSelect.addEventListener('change', chatChangeHandler);
-        chatSelect.addEventListener('addItem', chatChangeHandler);
+        
+        // Use choicesWrapper's onChange method for automatic Android compatibility
+        choicesInstance.onChange(chatChangeHandler);
     }
     
     initializeFlatpickr();
@@ -415,19 +418,38 @@ document.addEventListener('DOMContentLoaded', () => {
         redditUrlInput.addEventListener('paste', updateStartChatButtonState);
     }
 
-    if (workflowSubreddit) workflowSubreddit.addEventListener('change', updateRedditWorkflowUI);
-    if (workflowUrl) workflowUrl.addEventListener('change', updateRedditWorkflowUI);
+    // Use eventManager for cleaner event registration and automatic cleanup
+    if (workflowSubreddit) {
+        eventManager.register(workflowSubreddit, 'change', updateRedditWorkflowUI, 'reddit');
+    }
+    if (workflowUrl) {
+        eventManager.register(workflowUrl, 'change', updateRedditWorkflowUI, 'reddit');
+    }
 
-    if (backendSelect) backendSelect.addEventListener('change', handleBackendChange);
-    if (backendSelectMain) backendSelectMain.addEventListener('change', handleBackendChange);
-    if (loginSubmitButton) loginSubmitButton.addEventListener('click', handleLogin);
-    if (webexLoginButton) webexLoginButton.addEventListener('click', handleLogin);
+    if (backendSelect) {
+        eventManager.register(backendSelect, 'change', handleBackendChange, 'global');
+    }
+    if (backendSelectMain) {
+        eventManager.register(backendSelectMain, 'change', handleBackendChange, 'global');
+    }
+    if (loginSubmitButton) {
+        eventManager.register(loginSubmitButton, 'click', handleLogin, 'auth');
+    }
+    if (webexLoginButton) {
+        eventManager.register(webexLoginButton, 'click', handleLogin, 'auth');
+    }
     const redditLoginButton = document.getElementById('redditLoginButton');
-    if (redditLoginButton) redditLoginButton.addEventListener('click', handleLogin);
-    if (verifyButton) verifyButton.addEventListener('click', handleVerify);
-    if (logoutButton) logoutButton.addEventListener('click', handleFullLogout);
+    if (redditLoginButton) {
+        eventManager.register(redditLoginButton, 'click', handleLogin, 'auth');
+    }
+    if (verifyButton) {
+        eventManager.register(verifyButton, 'click', handleVerify, 'auth');
+    }
+    if (logoutButton) {
+        eventManager.register(logoutButton, 'click', handleFullLogout, 'global');
+    }
     if (refreshChatsLink) {
-        refreshChatsLink.addEventListener('click', (e) => {
+        eventManager.register(refreshChatsLink, 'click', (e) => {
             e.preventDefault();
             const backend = appState.activeBackend;
             if (backend) {
@@ -435,10 +457,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 sessionStorage.removeItem(cacheKey);
             }
             handleLoadChats();
-        });
+        }, 'chat');
     }
     
-    if (modelSelect) modelSelect.addEventListener('change', updateStartChatButtonState);
+    if (modelSelect) {
+        eventManager.register(modelSelect, 'change', updateStartChatButtonState, 'chat');
+    }
     if (backendSelectMain) {
         backendSelectMain.addEventListener('change', () => {
             const newBackend = backendSelectMain.value;
@@ -452,7 +476,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-    if (downloadChatButton) downloadChatButton.addEventListener('click', handleDownloadChat);
+    if (downloadChatButton) {
+        eventManager.register(downloadChatButton, 'click', handleDownloadChat, 'chat');
+    }
 
     // Ensure download formats include html and zip if dropdown exists
     if (downloadFormat) {
@@ -491,11 +517,17 @@ document.addEventListener('DOMContentLoaded', () => {
     
     checkSessionOnLoad();
 
-    if (manageBotsButton) manageBotsButton.addEventListener('click', () => {
-        showSectionWithLogic('botManagementSection');
-    });
-    if (backToChatsButton) backToChatsButton.addEventListener('click', () => showSectionWithLogic('chatSection'));
-    if (registerBotButton) registerBotButton.addEventListener('click', handleRegisterBot);
+    if (manageBotsButton) {
+        eventManager.register(manageBotsButton, 'click', () => {
+            showSectionWithLogic('botManagementSection');
+        }, 'bot');
+    }
+    if (backToChatsButton) {
+        eventManager.register(backToChatsButton, 'click', () => showSectionWithLogic('chatSection'), 'bot');
+    }
+    if (registerBotButton) {
+        eventManager.register(registerBotButton, 'click', handleRegisterBot, 'bot');
+    }
     function updateToggleButton() {
         const isMobile = window.innerWidth <= 1024;
         if (isMobile) {

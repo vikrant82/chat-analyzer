@@ -42,38 +42,45 @@ export async function handleLoadChats() {
 
     const populateChoices = (chats, source = 'new') => {
         choicesInstance.clearStore();
+        
         if (chats && chats.length > 0) {
             if (appState.activeBackend === 'reddit') {
+                // Group Reddit chats by category
                 const groupedChats = {
                     'Favorites': [],
                     'Subscribed': [],
                     'Popular': [],
                     'My Posts': []
                 };
+                
                 chats.forEach(chat => {
                     if (chat.title.startsWith('⭐ Subreddit:')) {
-                        // Keep the star in the label for visual distinction
-                        groupedChats['Favorites'].push({ value: chat.id, label: chat.title.replace('⭐ Subreddit: ', '⭐ ') });
+                        groupedChats['Favorites'].push({ 
+                            value: chat.id, 
+                            label: chat.title.replace('⭐ Subreddit: ', '⭐ ') 
+                        });
                     } else if (chat.title.startsWith('Subreddit:')) {
-                        groupedChats['Subscribed'].push({ value: chat.id, label: chat.title.replace('Subreddit: ', '') });
+                        groupedChats['Subscribed'].push({ 
+                            value: chat.id, 
+                            label: chat.title.replace('Subreddit: ', '') 
+                        });
                     } else if (chat.title.startsWith('Popular:')) {
-                        groupedChats['Popular'].push({ value: chat.id, label: chat.title.replace('Popular: ', '') });
+                        groupedChats['Popular'].push({ 
+                            value: chat.id, 
+                            label: chat.title.replace('Popular: ', '') 
+                        });
                     } else if (chat.title.startsWith('My Post:')) {
-                        groupedChats['My Posts'].push({ value: chat.id, label: chat.title.replace('My Post: ', '') });
+                        groupedChats['My Posts'].push({ 
+                            value: chat.id, 
+                            label: chat.title.replace('My Post: ', '') 
+                        });
                     }
                 });
 
-                const choices = Object.keys(groupedChats)
-                    .filter(group => groupedChats[group].length > 0)  // Only include non-empty groups
-                    .map(group => {
-                        return {
-                            label: group,
-                            choices: groupedChats[group]
-                        };
-                    });
-                choicesInstance.setChoices(choices, 'value', 'label', false);
-
+                // Use wrapper's grouped choices method
+                choicesInstance.setGroupedChoices(groupedChats);
             } else {
+                // Telegram or Webex
                 const chatOptions = chats.map(chat => ({
                     value: chat.id,
                     label: `${chat.title} (${chat.type})`
@@ -81,9 +88,11 @@ export async function handleLoadChats() {
                 choicesInstance.setChoices(chatOptions, 'value', 'label', false);
             }
         } else {
+            // Use wrapper's empty state method
             const label = source === 'cached' ? 'No chats found (cached)' : 'No chats found';
-            choicesInstance.setChoices([{ value: '', label: label, disabled: true }], 'value', 'label', true);
+            choicesInstance.showEmptyText(label);
         }
+        
         choicesInstance.enable();
     };
 
@@ -98,8 +107,7 @@ export async function handleLoadChats() {
 
     appState.chatListStatus[backend] = 'loading';
     choicesInstance.disable();
-    choicesInstance.clearStore();
-    choicesInstance.setChoices([{ value: '', label: 'Refreshing...', disabled: true }], 'value', 'label', true);
+    choicesInstance.showLoadingText('Refreshing...');
     updateStartChatButtonState();
 
     try {
@@ -115,8 +123,7 @@ export async function handleLoadChats() {
 
     } catch(error) {
         if (chatLoadingError) chatLoadingError.textContent = error.message || 'Failed to load chats.';
-        choicesInstance.setChoices([{ value: '', label: 'Failed to load. Click "Refresh List".', disabled: true }], 'value', 'label', true);
-        choicesInstance.enable();
+        choicesInstance.showErrorText('Failed to load. Click "Refresh List".');
         appState.chatListStatus[backend] = 'unloaded';
     } finally {
         updateStartChatButtonState();

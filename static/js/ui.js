@@ -1,5 +1,7 @@
 import { appState } from './state.js';
 import { getPostChoicesInstance } from './reddit.js';
+import { buttonStateManager } from './buttonStateManager.js';
+import { createChoices } from './choicesWrapper.js';
 
 // --- DOM Elements ---
 export const loginSection = document.getElementById('loginSection');
@@ -71,11 +73,9 @@ let flatpickrInstance = null;
 
 export function initializeChoices() {
     if (chatSelect) {
-        choicesInstance = new Choices(chatSelect, {
-            searchEnabled: true,
+        choicesInstance = createChoices(chatSelect, {
             itemSelectText: '',
             removeItemButton: true,
-            shouldSort: false,
             searchPlaceholderValue: "Search for a chat...",
         });
         choicesInstance.disable();
@@ -162,58 +162,36 @@ export function updateRedditWorkflowUI() {
 }
 
 
+/**
+ * Initialize the button state manager with required elements and instances
+ * Call this after DOM is loaded and instances are created
+ */
+export function initializeButtonStateManager() {
+    buttonStateManager.initialize(
+        {
+            startChatButton,
+            downloadChatButton,
+            initialQuestion,
+            toggleQuestionCheckbox
+        },
+        {
+            flatpickr: flatpickrInstance,
+            choices: choicesInstance,
+            postChoices: getPostChoicesInstance()
+        }
+    );
+}
+
+/**
+ * Update button states based on current form state
+ * Delegates to buttonStateManager for centralized validation logic
+ */
 export function updateStartChatButtonState() {
-    if (!startChatButton) return;
+    // Update the post choices instance in case it changed
+    buttonStateManager.instances.postChoices = getPostChoicesInstance();
     
-    // Use the stored flatpickr instance for more reliable access
-    const validDateSelected = flatpickrInstance && 
-                              flatpickrInstance.selectedDates && 
-                              flatpickrInstance.selectedDates.length === 2;
-
-    let validChatSelected = false;
-    if (appState.activeBackend === 'reddit') {
-        const selectedWorkflow = document.querySelector('input[name="reddit-workflow"]:checked').value;
-        if (selectedWorkflow === 'subreddit') {
-            const subredditSelected = choicesInstance && choicesInstance.getValue(true);
-            const postChoices = getPostChoicesInstance();
-            const postSelected = postChoices && postChoices.getValue(true);
-            validChatSelected = !!(subredditSelected && postSelected);
-        } else { // url workflow
-            const redditUrlInput = document.getElementById('redditUrlInput');
-            const url = redditUrlInput ? redditUrlInput.value.trim() : '';
-            // Simpler, more robust check for a valid-looking Reddit post URL
-            validChatSelected = url.includes('comments/');
-        }
-    } else {
-        validChatSelected = choicesInstance && choicesInstance.getValue(true) != null && choicesInstance.getValue(true) !== "";
-    }
-
-    const validModelSelected = modelSelect && modelSelect.value && !modelSelect.options[modelSelect.selectedIndex]?.disabled;
-
-    let coreRequirementsMet = appState.chatListStatus[appState.activeBackend] === 'loaded' && appState.modelsLoaded && validChatSelected && validModelSelected;
-
-    // Date selection is not required for any Reddit workflow now
-    if (appState.activeBackend !== 'reddit') {
-        coreRequirementsMet = coreRequirementsMet && validDateSelected;
-    }
-
-    const questionToggled = toggleQuestionCheckbox && toggleQuestionCheckbox.checked;
-    const questionText = initialQuestion && initialQuestion.value.trim();
-    const questionRequirementMet = !questionToggled || (questionToggled && questionText !== '');
-
-    startChatButton.disabled = !coreRequirementsMet || !questionRequirementMet;
-
-    if (downloadChatButton) {
-        let downloadDisabled = !validChatSelected;
-        if (appState.activeBackend !== 'reddit') {
-            downloadDisabled = downloadDisabled || !validDateSelected;
-        }
-        downloadChatButton.disabled = downloadDisabled;
-    }
-
-    if (initialQuestion) {
-        initialQuestion.disabled = !coreRequirementsMet;
-    }
+    // Trigger update
+    buttonStateManager.update();
 }
 
 export function initializeFlatpickr() {
@@ -226,6 +204,9 @@ export function initializeFlatpickr() {
             updateStartChatButtonState();
         }
     });
+    
+    // Initialize button state manager after instances are created
+    initializeButtonStateManager();
     
     // Ensure the button state is updated after initialization
     // Use a small delay to ensure the instance is fully ready on mobile
