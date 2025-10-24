@@ -2,6 +2,10 @@ import { appState } from './state.js';
 import { getPostChoicesInstance } from './reddit.js';
 import { buttonStateManager } from './buttonStateManager.js';
 import { createChoices } from './choicesWrapper.js';
+import { toast } from './toast.js';
+
+// Re-export toast for convenience
+export { toast };
 
 // --- DOM Elements ---
 export const loginSection = document.getElementById('loginSection');

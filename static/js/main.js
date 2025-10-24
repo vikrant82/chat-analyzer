@@ -12,10 +12,11 @@ import {
     workflowSubreddit, workflowUrl, updateRedditWorkflowUI
 } from './ui.js';
 import { handleLogin, handleVerify, handleFullLogout, checkSessionOnLoad, handleBackendChange, switchService } from './auth.js';
-import { handleLoadChats, callChatApi, handleDownloadChat, loadModels } from './chat.js';
+import { handleLoadChats, callChatApi, handleDownloadChat, loadModels, initializeScrollToBottom } from './chat.js';
 import { handleRegisterBot, loadBots } from './bot.js';
 import { getPostChoicesInstance } from './reddit.js';
 import { eventManager } from './eventManager.js';
+import { toast } from './toast.js';
 
 const RECENT_CHATS_KEY = 'chat_analyzer_recent_chats';
 const MAX_RECENT_CHATS = 10;
@@ -373,6 +374,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     initializeFlatpickr();
+    initializeScrollToBottom();
 
     if (cacheChatsToggle) {
         const saved = localStorage.getItem(CACHE_CHATS_KEY);

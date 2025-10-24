@@ -9,6 +9,54 @@ import {
 import { handleFullLogout } from './auth.js';
 import { initializeRedditPostChoices, getPostChoicesInstance, handleRedditChatSelection } from './reddit.js';
 
+/**
+ * Smart auto-scroll: Only scrolls to bottom if user is already near the bottom
+ * This prevents interrupting users who are reading earlier messages during streaming
+ */
+function smartAutoScroll() {
+    if (!chatWindow) return;
+    
+    const threshold = 150; // pixels from bottom to consider "at bottom"
+    const distanceFromBottom = chatWindow.scrollHeight - chatWindow.scrollTop - chatWindow.clientHeight;
+    
+    // Only auto-scroll if user is already near the bottom
+    if (distanceFromBottom < threshold) {
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+}
+
+/**
+ * Initialize scroll-to-bottom button functionality
+ */
+export function initializeScrollToBottom() {
+    const scrollToBottomButton = document.getElementById('scrollToBottomButton');
+    if (!scrollToBottomButton || !chatWindow) return;
+    
+    const threshold = 150; // Same threshold as smartAutoScroll
+    
+    // Show/hide button based on scroll position
+    function updateScrollButton() {
+        const distanceFromBottom = chatWindow.scrollHeight - chatWindow.scrollTop - chatWindow.clientHeight;
+        
+        if (distanceFromBottom > threshold) {
+            scrollToBottomButton.style.display = 'flex';
+        } else {
+            scrollToBottomButton.style.display = 'none';
+        }
+    }
+    
+    // Listen to scroll events
+    chatWindow.addEventListener('scroll', updateScrollButton);
+    
+    // Handle button click
+    scrollToBottomButton.addEventListener('click', () => {
+        chatWindow.scrollTo({
+            top: chatWindow.scrollHeight,
+            behavior: 'smooth'
+        });
+    });
+}
+
 export async function handleLoadChats() {
     const backend = appState.activeBackend;
     const choicesInstance = getChoicesInstance();
@@ -222,7 +270,7 @@ export async function callChatApi(message = null, chatId = null) {
     aiMessageElem.appendChild(messageContent);
     
     chatWindow.appendChild(aiMessageElem);
-    chatWindow.scrollTop = chatWindow.scrollHeight;
+    smartAutoScroll(); // Only scroll if user is at bottom
 
     setLoadingState(sendChatButton, true);
     appState.chatRequestController = new AbortController();
@@ -299,7 +347,7 @@ export async function callChatApi(message = null, chatId = null) {
                         messageContent.innerHTML = fullResponseText;
                         break;
                     }
-                    chatWindow.scrollTop = chatWindow.scrollHeight;
+                    smartAutoScroll(); // Only scroll if user is at bottom
                 }
                 
             }
@@ -313,7 +361,11 @@ export async function callChatApi(message = null, chatId = null) {
             const regenerateButton = document.createElement('button');
             regenerateButton.classList.add('regenerate-button');
             regenerateButton.textContent = 'Regenerate';
-            regenerateButton.addEventListener('click', () => regenerateLastMessage());
+            regenerateButton.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                await regenerateLastMessage();
+            });
             aiMessageElem.appendChild(regenerateButton);
 
             const copyButton = document.createElement('button');
@@ -412,28 +464,61 @@ export async function handleDownloadChat() {
 }
 
 export async function regenerateLastMessage() {
-    // Remove the last AI message from the chat window
-    const lastAiMessage = chatWindow.querySelector('.chat-message.ai-message:last-child');
-    if (lastAiMessage) {
-        lastAiMessage.remove();
-    }
-    
-    // Remove the last AI message from the conversation array
-    if (appState.conversation.length > 0 && appState.conversation[appState.conversation.length - 1].role === 'model') {
-        appState.conversation.pop();
-    }
-    
-    // Find the last user message
-    let lastUserMessage = null;
-    for (let i = appState.conversation.length - 1; i >= 0; i--) {
-        if (appState.conversation[i].role === 'user') {
-            lastUserMessage = appState.conversation[i].content;
-            break;
+    try {
+        console.log('Regenerating last message...');
+        console.log('Current conversation state:', appState.conversation);
+        console.log('Current chat ID:', appState.currentChatId);
+        
+        // Validate we have an active chat session
+        if (!appState.currentChatId) {
+            alert('No active chat session. Please start a new chat.');
+            return;
         }
-    }
-    
-    // Call the chat API with the last user message
-    if (lastUserMessage) {
-        await callChatApi(lastUserMessage, appState.currentChatId);
+        
+        // First, find the last user message BEFORE removing anything
+        let lastUserMessage = null;
+        for (let i = appState.conversation.length - 1; i >= 0; i--) {
+            if (appState.conversation[i].role === 'user') {
+                lastUserMessage = appState.conversation[i].content;
+                break;
+            }
+        }
+        
+        console.log('Last user message found:', lastUserMessage);
+        
+        // If no user message found, this might be the initial automatic summary
+        // In this case, we can regenerate by calling the API with no message (gets a fresh summary)
+        const isInitialSummary = !lastUserMessage && appState.conversation.length > 0;
+        
+        if (!lastUserMessage && !isInitialSummary) {
+            alert('No message to regenerate. The conversation appears to be empty.');
+            return;
+        }
+        
+        // Remove the last AI message from the chat window
+        const lastAiMessage = chatWindow.querySelector('.chat-message.ai-message:last-child');
+        if (lastAiMessage) {
+            lastAiMessage.remove();
+        }
+        
+        // Remove the last AI message from the conversation array
+        if (appState.conversation.length > 0 && appState.conversation[appState.conversation.length - 1].role === 'model') {
+            appState.conversation.pop();
+        }
+        
+        // Call the chat API
+        // If there's a user message, regenerate that response
+        // If this is an initial summary (no user message), call without message parameter to get a fresh summary
+        if (isInitialSummary) {
+            console.log('Regenerating initial summary...');
+            await callChatApi(null, appState.currentChatId);
+        } else {
+            console.log('Regenerating response to user message:', lastUserMessage);
+            await callChatApi(lastUserMessage, appState.currentChatId);
+        }
+        
+    } catch (error) {
+        console.error('Error in regenerateLastMessage:', error);
+        alert(`Failed to regenerate message: ${error.message}`);
     }
 }

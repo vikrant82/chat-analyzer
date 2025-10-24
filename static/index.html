@@ -6,7 +6,7 @@
     <title>Chat Analyzer</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <link rel="stylesheet" id="flatpickr-theme" href="https://npmcdn.com/flatpickr/dist/themes/dark.css" disabled>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/>
@@ -179,6 +179,9 @@
                         <div id="chatWindow">
                             <!-- Chat messages will be appended here -->
                         </div>
+                        <button id="scrollToBottomButton" class="scroll-to-bottom" style="display: none;" title="Scroll to bottom">
+                            <span class="material-symbols-outlined">arrow_downward</span>
+                        </button>
                         <div class="chat-input-area">
                             <textarea id="chatInput" placeholder="Ask a follow-up question..."></textarea>
                             <button id="sendChatButton">Send</button>
@@ -243,6 +246,7 @@
        </div>
    </div>
    <div id="mobileMenuOverlay"></div>
+   <div id="toast-container" class="toast-container"></div>
 
    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
