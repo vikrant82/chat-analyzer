@@ -5,6 +5,8 @@
 # Docker files (they don't need to be inside the image)
 Dockerfile
 docker-compose.yaml
+docker-compose-localbuild.yaml
+build-and-push.sh
 
 # Python virtual environment
 venv/
@@ -17,17 +19,57 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.pytest_cache/
 
 # IDE and OS-specific files
 .idea/
 .vscode/
-*.DS_Store
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.swp
+*.swo
 
-# Local sessions and cache (these should be handled by volumes, not baked into the image)
+# AI Assistant Tools (development only)
+.cursor/
+.clinerules/
+.kilocode/
+.kilocodemodes
+.roo/
+.roomodes
+.aider*
+.windsurf/
+.continue/
+.serena/
+
+# Local runtime data (handled by volumes, not baked into image)
 sessions/
 cache/
-
-# Local logs
 *.log
+*.session
+app.log
 
+# Sensitive configuration files (should be mounted as volumes)
 config.json
+bots.json
+
+# Build and version metadata
+.version
+.coverage
+
+# Documentation and examples (not needed at runtime)
+docs/last_session.md
+docs/SESSION_COMPLETE.md
+example-config.json
+readme.md
+
+# Testing files (not needed in production)
+tests/
+pytest.ini
+
+# Development tools (optional - comment out if needed)
+bot_cli.py

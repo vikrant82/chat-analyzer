@@ -10,6 +10,7 @@ services:
       - ./config.json:/app/config.json:ro
       - sessions_data:/app/sessions
       - cache_data:/app/cache
+      - ./bots.json:/app/bots.json 
     restart: unless-stopped
 
 volumes:
