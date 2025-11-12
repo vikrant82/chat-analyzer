@@ -5,6 +5,7 @@ config.json
 *.session
 docs/last_session.md
 docs/SESSION_COMPLETE.md
+.version
 
 # Logs
 *.log
