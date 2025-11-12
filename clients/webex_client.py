@@ -45,10 +45,23 @@ class WebexClient(ChatClient):
             scopes=WEBEX_CONFIG.get('scopes', []),
             token_storage_path=TOKEN_STORAGE_PATH
         )
-        self.http_client = httpx.AsyncClient()
+        # Configure HTTP client with connection pooling limits and timeouts
+        # This prevents pool exhaustion during parallel image downloads
+        limits = httpx.Limits(
+            max_connections=100,        # Maximum total connections
+            max_keepalive_connections=20  # Maximum idle connections to keep alive
+        )
+        timeout = httpx.Timeout(
+            connect=10.0,   # Time to establish connection
+            read=60.0,      # Time to read response
+            write=10.0,     # Time to send request
+            pool=5.0        # Time to acquire connection from pool
+        )
+        self.http_client = httpx.AsyncClient(limits=limits, timeout=timeout)
         self.image_processing_config = WEBEX_CONFIG.get('image_processing', {})
         self.parallel_fetch_chunk_days = WEBEX_CONFIG.get('parallel_fetch_chunk_days', 7)
         self.max_concurrent_fetches = WEBEX_CONFIG.get('max_concurrent_fetches', 5)
+        self.max_concurrent_image_downloads = WEBEX_CONFIG.get('max_concurrent_image_downloads', 20)
 
 
     async def _download_and_encode_file(self, file_url: str, settings: Dict[str, Any]) -> Optional[Attachment]:
@@ -63,13 +76,20 @@ class WebexClient(ChatClient):
         try:
             headers = self.api.get_auth_headers()
 
-            # Use a HEAD request to check file metadata before downloading content
-            async with httpx.AsyncClient() as client:
-                head_response = await client.head(file_url, headers=headers)
-                head_response.raise_for_status()
+            # Use the persistent http_client for both HEAD and GET to avoid connection pool issues
+            # Check file metadata before downloading content
+            head_response = await self.http_client.head(file_url, headers=headers)
+            head_response.raise_for_status()
 
             content_type = head_response.headers.get('Content-Type', 'application/octet-stream')
-            content_length = int(head_response.headers.get('Content-Length', 0))
+            content_length_str = head_response.headers.get('Content-Length', '0')
+            
+            # Safely parse Content-Length header
+            try:
+                content_length = int(content_length_str)
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid Content-Length header '{content_length_str}' for {file_url}, defaulting to 0")
+                content_length = 0
 
             # 1. Check MIME type against allowed list
             allowed_mime_types = settings.get('allowed_mime_types', [])
@@ -89,6 +109,12 @@ class WebexClient(ChatClient):
 
             encoded_data = base64.b64encode(response.content).decode('utf-8')
             return Attachment(mime_type=content_type, data=encoded_data)
+        except httpx.PoolTimeout:
+            logger.error(f"Connection pool timeout while fetching file from {file_url}. Too many concurrent downloads - consider reducing parallel fetch settings.")
+            return None
+        except httpx.TimeoutException as e:
+            logger.error(f"Request timeout while fetching file from {file_url}: {e}")
+            return None
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error while fetching file from {file_url}: {e.response.status_code}")
             return None
@@ -314,7 +340,8 @@ class WebexClient(ChatClient):
                 if isinstance(result, Exception):
                     logger.error(f"Error fetching date range: {result}")
                     continue
-                messages, range_days = result
+                # Type checker: result is guaranteed to be tuple here (not Exception)
+                messages, range_days = result  # type: ignore[misc]
                 
                 # Deduplicate messages by ID
                 for msg in messages:
@@ -360,31 +387,41 @@ class WebexClient(ChatClient):
                         'file_urls': msg_raw.get('files', [])
                     })
 
-            # Second pass: download all files in parallel
-            logger.info(f"Downloading files for {len(messages_to_process)} messages in parallel")
-            all_download_tasks = []
-            task_to_msg_index = {}
+            # Second pass: download all files in parallel with concurrency control
+            all_file_urls = []
+            file_url_to_msg_index = {}
             
             for idx, msg_info in enumerate(messages_to_process):
                 for file_url in msg_info['file_urls']:
-                    task = self._download_and_encode_file(file_url, final_image_settings)
-                    all_download_tasks.append(task)
-                    task_to_msg_index[len(all_download_tasks) - 1] = (idx, file_url)
+                    all_file_urls.append(file_url)
+                    file_url_to_msg_index[file_url] = idx
             
-            # Download all files concurrently
-            if all_download_tasks:
-                logger.info(f"Starting parallel download of {len(all_download_tasks)} files")
-                download_results = await asyncio.gather(*all_download_tasks, return_exceptions=True)
+            # Download files with semaphore to limit concurrency
+            if all_file_urls:
+                logger.info(f"Downloading {len(all_file_urls)} files with max {self.max_concurrent_image_downloads} concurrent downloads")
+                
+                # Create semaphore to limit concurrent downloads
+                semaphore = asyncio.Semaphore(self.max_concurrent_image_downloads)
+                
+                async def download_with_limit(file_url: str):
+                    """Download a single file with semaphore-based rate limiting."""
+                    async with semaphore:
+                        return await self._download_and_encode_file(file_url, final_image_settings)
+                
+                # Download all files with concurrency control
+                download_results = await asyncio.gather(
+                    *[download_with_limit(url) for url in all_file_urls],
+                    return_exceptions=True
+                )
                 
                 # Map results back to messages
                 msg_attachments = {idx: [] for idx in range(len(messages_to_process))}
-                for task_idx, result in enumerate(download_results):
-                    if task_idx in task_to_msg_index:
-                        msg_idx, file_url = task_to_msg_index[task_idx]
-                        if isinstance(result, Exception):
-                            logger.error(f"Error downloading file {file_url}: {result}")
-                        elif result is not None:
-                            msg_attachments[msg_idx].append(result)
+                for file_url, result in zip(all_file_urls, download_results):
+                    msg_idx = file_url_to_msg_index[file_url]
+                    if isinstance(result, Exception):
+                        logger.error(f"Error downloading file {file_url}: {result}")
+                    elif result is not None:
+                        msg_attachments[msg_idx].append(result)
             else:
                 msg_attachments = {}
 

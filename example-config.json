@@ -3,7 +3,8 @@
     "api_id": "YOUR_TELEGRAM_API_ID",
     "api_hash": "YOUR_TELEGRAM_API_HASH",
     "parallel_fetch_chunk_days": 7,
-    "max_concurrent_fetches": 5
+    "max_concurrent_fetches": 5,
+    "max_concurrent_media_downloads": 20
   },
   "webex": {
     "client_id": "YOUR_WEBEX_CLIENT_ID",
@@ -23,7 +24,8 @@
       ]
     },
     "parallel_fetch_chunk_days": 7,
-    "max_concurrent_fetches": 5
+    "max_concurrent_fetches": 5,
+    "max_concurrent_image_downloads": 20
   },
   "reddit": {
     "client_id": "YOUR_REDDIT_CLIENT_ID",
@@ -38,7 +40,8 @@
     "default_time_filter": "week",
     "subreddit_sort": "subscribers",
     "show_favorites": true,
-    "favorites_limit": 50
+    "favorites_limit": 50,
+    "max_concurrent_image_downloads": 20
   },
   "google_ai": {
     "api_key": "YOUR_GOOGLE_AI_API_KEY",

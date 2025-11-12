@@ -46,10 +46,29 @@ class RedditSessionManager:
 
 class ImageFetcher:
     """
-    A helper class to fetch and process images from URLs.
+    A helper class to fetch and process images from URLs with connection pooling and concurrency control.
     """
-    def __init__(self, image_processing_settings: Optional[Dict[str, Any]] = None):
+    def __init__(self, image_processing_settings: Optional[Dict[str, Any]] = None, global_max_concurrent: int = 20):
         self.enabled = image_processing_settings and image_processing_settings.get('enabled')
+        # Use per-request setting if provided, otherwise use global config
+        self.max_concurrent_downloads = (
+            image_processing_settings.get('max_concurrent_downloads', global_max_concurrent) 
+            if image_processing_settings 
+            else global_max_concurrent
+        )
+        
+        # Configure HTTP client with connection pooling limits and timeouts
+        limits = httpx.Limits(
+            max_connections=100,
+            max_keepalive_connections=20
+        )
+        timeout = httpx.Timeout(
+            connect=10.0,
+            read=60.0,
+            write=10.0,
+            pool=5.0
+        )
+        self.http_client = httpx.AsyncClient(limits=limits, timeout=timeout)
 
     async def fetch_images_from_text(self, text: str) -> List[Attachment]:
         if not self.enabled or not text:
@@ -82,18 +101,49 @@ class ImageFetcher:
         return await self._download_and_encode(image_urls)
 
     async def _download_and_encode(self, urls: set) -> List[Attachment]:
-        attachments = []
-        async with httpx.AsyncClient() as client:
-            for url in urls:
+        """
+        Download and encode images with concurrency control to prevent connection pool exhaustion.
+        """
+        if not urls:
+            return []
+        
+        import asyncio
+        
+        # Create semaphore to limit concurrent downloads
+        semaphore = asyncio.Semaphore(self.max_concurrent_downloads)
+        
+        async def download_single_image(url: str) -> Optional[Attachment]:
+            """Download a single image with semaphore-based rate limiting."""
+            async with semaphore:
                 try:
-                    response = await client.get(url, timeout=10.0)
+                    response = await self.http_client.get(url)
                     response.raise_for_status()
                     content_type = response.headers.get('content-type', 'application/octet-stream')
                     if 'image' in content_type:
                         data = base64.b64encode(response.content).decode('utf-8')
-                        attachments.append(Attachment(mime_type=content_type, data=data))
+                        return Attachment(mime_type=content_type, data=data)
+                except httpx.PoolTimeout:
+                    print(f"Connection pool timeout while downloading {url}. Too many concurrent downloads.")
+                    return None
+                except httpx.TimeoutException as e:
+                    print(f"Request timeout while downloading {url}: {e}")
+                    return None
                 except (httpx.RequestError, httpx.HTTPStatusError) as e:
                     print(f"Failed to download image from {url}: {e}")
+                    return None
+        
+        # Download all images in parallel with concurrency control
+        results = await asyncio.gather(
+            *[download_single_image(url) for url in urls],
+            return_exceptions=True
+        )
+        
+        # Filter out None values and exceptions
+        attachments: List[Attachment] = [
+            result for result in results
+            if result is not None and not isinstance(result, Exception) and isinstance(result, Attachment)
+        ]
+        
         return attachments
 
 class RedditClient(ChatClient):
@@ -121,6 +171,9 @@ class RedditClient(ChatClient):
         self.subreddit_sort = config.get("subreddit_sort", "subscribers")  # alphabetical, subscribers, activity
         self.show_favorites = config.get("show_favorites", True)
         self.favorites_limit = config.get("favorites_limit", 50)
+        
+        # Load image download configuration
+        self.max_concurrent_image_downloads = config.get("max_concurrent_image_downloads", 20)
 
     async def _get_reddit_instance(self, user_identifier: str) -> asyncpraw.Reddit:
         """
@@ -511,7 +564,7 @@ class RedditClient(ChatClient):
         if submission.selftext:
             post_text = f"{submission.title}\n\n{submission.selftext}"
 
-        image_fetcher = ImageFetcher(image_processing_settings)
+        image_fetcher = ImageFetcher(image_processing_settings, self.max_concurrent_image_downloads)
         submission_attachments = await image_fetcher.fetch_submission_images(submission)
         text_attachments = await image_fetcher.fetch_images_from_text(post_text)
         attachments = submission_attachments + text_attachments

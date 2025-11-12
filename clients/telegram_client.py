@@ -61,6 +61,7 @@ class TelegramClient(ChatClient):
     def __init__(self):
         self.parallel_fetch_chunk_days = TELEGRAM_CONFIG.get('parallel_fetch_chunk_days', 7)
         self.max_concurrent_fetches = TELEGRAM_CONFIG.get('max_concurrent_fetches', 5)
+        self.max_concurrent_media_downloads = TELEGRAM_CONFIG.get('max_concurrent_media_downloads', 20)
 
     def _get_cache_path(self, user_identifier: str, chat_id: str, day: datetime) -> str:
         safe_user_id = ''.join(filter(str.isalnum, user_identifier))
@@ -343,10 +344,22 @@ class TelegramClient(ChatClient):
                             logger.warning(f"Failed to process media for message {message.id}: {e}", exc_info=True)
                             return []
                     
-                    # Download all media concurrently
+                    # Download all media with concurrency control to prevent connection pool exhaustion
                     if raw_messages_to_process:
-                        logger.info(f"Downloading media for {len(raw_messages_to_process)} messages in parallel")
-                        media_results = await asyncio.gather(*[download_message_media(msg_info) for msg_info in raw_messages_to_process], return_exceptions=True)
+                        logger.info(f"Downloading media for {len(raw_messages_to_process)} messages with max {self.max_concurrent_media_downloads} concurrent downloads")
+                        
+                        # Create semaphore to limit concurrent media downloads
+                        semaphore = asyncio.Semaphore(self.max_concurrent_media_downloads)
+                        
+                        async def download_with_limit(msg_info):
+                            """Download media for a single message with semaphore-based rate limiting."""
+                            async with semaphore:
+                                return await download_message_media(msg_info)
+                        
+                        media_results = await asyncio.gather(
+                            *[download_with_limit(msg_info) for msg_info in raw_messages_to_process],
+                            return_exceptions=True
+                        )
                     else:
                         media_results = []
                     
