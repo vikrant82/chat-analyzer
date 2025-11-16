@@ -647,4 +647,17 @@ document.addEventListener('DOMContentLoaded', () => {
         themeCheckbox.checked = isDark;
         applyTheme(isDark);
     }
+
+    // Fetch and display application version
+    fetch('/api/version')
+        .then(response => response.json())
+        .then(data => {
+            const versionElement = document.getElementById('app-version');
+            if (versionElement && data.version) {
+                versionElement.textContent = `v${data.version}`;
+            }
+        })
+        .catch(error => {
+            console.error('Failed to fetch version:', error);
+        });
 });

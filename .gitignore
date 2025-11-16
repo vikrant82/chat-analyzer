@@ -5,7 +5,7 @@ config.json
 *.session
 docs/last_session.md
 docs/SESSION_COMPLETE.md
-.version
+# .version - now tracked for GitHub releases
 
 # Logs
 *.log

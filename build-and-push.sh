@@ -52,3 +52,16 @@ docker buildx build --platform linux/arm64,linux/amd64 --no-cache -t vikrant82/c
 
 echo "Successfully built and pushed version $NEW_VERSION"
 echo "Version file updated to $NEW_VERSION"
+
+# Optional: Commit version file and push to trigger GitHub release
+read -p "Commit version file and push to GitHub to create release? (y/n) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    git add .version
+    git commit -m "chore: bump version to $NEW_VERSION"
+    git push origin main
+    echo "Version committed and pushed. GitHub Actions will create release v$NEW_VERSION"
+    echo "View releases at: https://github.com/vikrant82/chat-analyzer/releases"
+else
+    echo "Skipped git commit. Run manually: git add .version && git commit -m 'chore: bump version to $NEW_VERSION' && git push"
+fi

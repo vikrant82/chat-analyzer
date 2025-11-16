@@ -29,6 +29,17 @@ logger = logging.getLogger(__name__)
 bot_manager = BotManager()
 llm_manager = LLMManager()
 
+# --- Version Management ---
+VERSION_FILE = ".version"
+APP_VERSION = "1.0"  # Default fallback
+if os.path.exists(VERSION_FILE):
+    try:
+        with open(VERSION_FILE, 'r') as f:
+            APP_VERSION = f.read().strip()
+        logger.info(f"Application version: {APP_VERSION}")
+    except Exception as e:
+        logger.warning(f"Could not read version file: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Application startup: Initializing...")
@@ -67,6 +78,11 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR, html=True), name="static"
 @app.get("/", response_class=FileResponse, include_in_schema=False)
 async def root():
     return FileResponse(os.path.join(STATIC_DIR, 'index.html'))
+
+@app.get("/api/version")
+async def get_version():
+    """Returns the current application version."""
+    return {"version": APP_VERSION}
 
 app.include_router(auth.router, prefix="/api", tags=["Authentication"])
 app.include_router(downloads.router, prefix="/api", tags=["Downloads"])
