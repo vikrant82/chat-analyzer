@@ -58,7 +58,7 @@ config.json
 bots.json
 
 # Build and version metadata
-.version
+# .version - now included in image for version display
 .coverage
 
 # Documentation and examples (not needed at runtime)

@@ -8,6 +8,8 @@ The Chat Analyzer project uses automated GitHub releases that sync with Docker i
 - **Format**: `MAJOR.MINOR` (e.g., `1.1`, `2.0`)
 - **Current Version**: `1.1`
 - **Git Tracking**: YES (removed from .gitignore to enable release automation)
+- **Docker Image**: YES (removed from .dockerignore - file is copied into image for runtime version display)
+- **Purpose**: Single source of truth for version - used by build script, API endpoint, and UI
 
 ## Automated Release Workflow
 
@@ -310,6 +312,41 @@ git push origin :refs/tags/v1.2
 
 # Or skip - release probably already created
 ```
+
+## Docker Image Considerations
+
+### Version File in Container
+**Critical**: The `.version` file **must be included** in the Docker image for the version to display correctly in the UI.
+
+**Implementation**:
+1. **Dockerfile**: Uses `COPY . .` which copies all files
+2. **Exclusions**: `.dockerignore` initially excluded `.version` but has been corrected
+3. **Current Status**: ✅ `.version` is now included in Docker image
+
+**Verification**:
+```bash
+# Build image
+docker build -t test-version .
+
+# Check if version file exists in container
+docker run --rm test-version cat .version
+# Should output: 1.1 (or current version)
+
+# Test API endpoint
+docker run -d -p 8000:8000 test-version
+curl http://localhost:8000/api/version
+# Should return: {"version":"1.1"}
+```
+
+**Impact if Missing**:
+- ❌ API returns fallback version "1.0" instead of actual version
+- ❌ UI always shows "v1.0" regardless of Docker image tag
+- ❌ Users can't see which version they're running
+
+**Files Involved**:
+- `.dockerignore` - Must NOT exclude `.version`
+- `Dockerfile` - `COPY . .` includes `.version`
+- `app.py` - Reads `.version` at container startup
 
 ## Integration Points
 
