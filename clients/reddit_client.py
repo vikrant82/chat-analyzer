@@ -8,6 +8,7 @@ import mimetypes
 from datetime import datetime, timezone
 from asyncpraw.models import MoreComments
 from typing import List, Dict, Any, Optional
+import asyncprawcore
 
 from clients.base_client import ChatClient, User, Chat, Message, Attachment
 
@@ -352,6 +353,12 @@ class RedditClient(ChatClient):
                 title = f"⭐ Subreddit: {sub_data['name']} [{sub_display} members]"
                 favorites.append(Chat(id=f"sub_{sub_data['name']}", title=title, type="subreddit"))
                 
+        except asyncprawcore.exceptions.ResponseException as e:
+            if e.response.status_code == 400:
+                print(f"Reddit session invalid for user {user_identifier}: {e}")
+                await self.logout(user_identifier)
+                raise ValueError("Reddit session expired or invalid. Please log in again.")
+            raise e
         except Exception as e:
             print(f"Could not fetch favorite subreddits: {e}")
         
@@ -372,110 +379,139 @@ class RedditClient(ChatClient):
         chats = []
         favorite_subreddit_names = set()
 
-        # 0. Get favorite subreddits first (if enabled)
-        if self.show_favorites:
-            try:
-                favorites = await self.get_favorite_subreddits(user_identifier)
-                chats.extend(favorites)
-                # Track favorite names to avoid duplicates in regular list
-                for fav in favorites:
-                    # Extract subreddit name from id (format: "sub_subredditname")
-                    if fav.id.startswith("sub_"):
-                        favorite_subreddit_names.add(fav.id.replace("sub_", ""))
-            except Exception as e:
-                print(f"Could not fetch favorite subreddits: {e}")
-
-        # 1. Get subscribed subreddits with smart sorting (excluding favorites)
         try:
-            subreddits_with_metadata = []
-            async for sub in reddit_user_instance.user.subreddits(limit=self.subreddit_limit):
-                # Skip if already shown in favorites
-                if sub.display_name in favorite_subreddit_names:
-                    continue
-                    
-                # Fetch subreddit details for sorting metadata
+            # 0. Get favorite subreddits first (if enabled)
+            if self.show_favorites:
                 try:
-                    # Get subscriber count and activity indicator
-                    subscribers = getattr(sub, 'subscribers', 0) or 0
-                    active_users = getattr(sub, 'active_user_count', 0) or 0
-                    
-                    subreddits_with_metadata.append({
-                        'subreddit': sub,
-                        'name': sub.display_name,
-                        'subscribers': subscribers,
-                        'active_users': active_users
-                    })
+                    favorites = await self.get_favorite_subreddits(user_identifier)
+                    chats.extend(favorites)
+                    # Track favorite names to avoid duplicates in regular list
+                    for fav in favorites:
+                        # Extract subreddit name from id (format: "sub_subredditname")
+                        if fav.id.startswith("sub_"):
+                            favorite_subreddit_names.add(fav.id.replace("sub_", ""))
                 except Exception as e:
-                    # If metadata fetch fails, still add the subreddit
-                    subreddits_with_metadata.append({
-                        'subreddit': sub,
-                        'name': sub.display_name,
-                        'subscribers': 0,
-                        'active_users': 0
-                    })
-            
-            # Sort subreddits based on configuration
-            if self.subreddit_sort == "alphabetical":
-                subreddits_with_metadata.sort(key=lambda x: x['name'].lower())
-            elif self.subreddit_sort == "subscribers":
-                subreddits_with_metadata.sort(key=lambda x: x['subscribers'], reverse=True)
-            elif self.subreddit_sort == "activity":
-                subreddits_with_metadata.sort(key=lambda x: x['active_users'], reverse=True)
-            else:
-                # Default to subscribers if invalid option
-                subreddits_with_metadata.sort(key=lambda x: x['subscribers'], reverse=True)
-            
-            # Build chat list with rich metadata
-            for sub_data in subreddits_with_metadata:
-                # Format subscriber count (K, M notation)
-                subscribers = sub_data['subscribers']
-                if subscribers >= 1_000_000:
-                    sub_display = f"{subscribers / 1_000_000:.1f}M"
-                elif subscribers >= 1_000:
-                    sub_display = f"{subscribers / 1_000:.1f}K"
+                    # If get_favorite_subreddits raised ValueError (session invalid), re-raise it
+                    if "session expired" in str(e).lower():
+                        raise e
+                    print(f"Could not fetch favorite subreddits: {e}")
+
+            # 1. Get subscribed subreddits with smart sorting (excluding favorites)
+            try:
+                subreddits_with_metadata = []
+                async for sub in reddit_user_instance.user.subreddits(limit=self.subreddit_limit):
+                    # Skip if already shown in favorites
+                    if sub.display_name in favorite_subreddit_names:
+                        continue
+                        
+                    # Fetch subreddit details for sorting metadata
+                    try:
+                        # Get subscriber count and activity indicator
+                        subscribers = getattr(sub, 'subscribers', 0) or 0
+                        active_users = getattr(sub, 'active_user_count', 0) or 0
+                        
+                        subreddits_with_metadata.append({
+                            'subreddit': sub,
+                            'name': sub.display_name,
+                            'subscribers': subscribers,
+                            'active_users': active_users
+                        })
+                    except Exception as e:
+                        # If metadata fetch fails, still add the subreddit
+                        subreddits_with_metadata.append({
+                            'subreddit': sub,
+                            'name': sub.display_name,
+                            'subscribers': 0,
+                            'active_users': 0
+                        })
+                
+                # Sort subreddits based on configuration
+                if self.subreddit_sort == "alphabetical":
+                    subreddits_with_metadata.sort(key=lambda x: x['name'].lower())
+                elif self.subreddit_sort == "subscribers":
+                    subreddits_with_metadata.sort(key=lambda x: x['subscribers'], reverse=True)
+                elif self.subreddit_sort == "activity":
+                    subreddits_with_metadata.sort(key=lambda x: x['active_users'], reverse=True)
                 else:
-                    sub_display = str(subscribers)
+                    # Default to subscribers if invalid option
+                    subreddits_with_metadata.sort(key=lambda x: x['subscribers'], reverse=True)
                 
-                title = f"Subreddit: {sub_data['name']} [{sub_display} members]"
-                chats.append(Chat(id=f"sub_{sub_data['name']}", title=title, type="subreddit"))
-                
-        except Exception as e:
-            print(f"Could not fetch subscribed subreddits: {e}")
+                # Build chat list with rich metadata
+                for sub_data in subreddits_with_metadata:
+                    # Format subscriber count (K, M notation)
+                    subscribers = sub_data['subscribers']
+                    if subscribers >= 1_000_000:
+                        sub_display = f"{subscribers / 1_000_000:.1f}M"
+                    elif subscribers >= 1_000:
+                        sub_display = f"{subscribers / 1_000:.1f}K"
+                    else:
+                        sub_display = str(subscribers)
+                    
+                    title = f"Subreddit: {sub_data['name']} [{sub_display} members]"
+                    chats.append(Chat(id=f"sub_{sub_data['name']}", title=title, type="subreddit"))
+                    
+            except asyncprawcore.exceptions.ResponseException as e:
+                if e.response.status_code == 400:
+                    print(f"Reddit session invalid during subreddits fetch for user {user_identifier}: {e}")
+                    await self.logout(user_identifier)
+                    raise ValueError("Reddit session expired or invalid. Please log in again.")
+                raise e
+            except Exception as e:
+                print(f"Could not fetch subscribed subreddits: {e}")
 
 
-        # 2. Get popular posts using configured sort method
-        try:
-            popular_subreddit = await reddit_user_instance.subreddit("popular")
-            popular_posts = await self._fetch_posts_with_sort(
-                popular_subreddit, 
-                sort_method=self.default_sort,
-                time_filter=self.default_time_filter,
-                limit=self.popular_posts_limit
-            )
-            for submission in popular_posts:
-                # Add score and comment count for better context
-                chats.append(Chat(
-                    id=submission.id, 
-                    title=f"Popular: {submission.title} [{submission.score}⬆ {submission.num_comments}💬]", 
-                    type="post"
-                ))
-        except Exception as e:
-            print(f"Could not fetch popular posts: {e}")
-
-        # 3. Get user's own recent posts (always sorted by new)
-        try:
-            user = await reddit_user_instance.user.me()
-            if user:
-                count = 0
-                async for submission in user.submissions.new(limit=self.user_posts_limit):
+            # 2. Get popular posts using configured sort method
+            try:
+                popular_subreddit = await reddit_user_instance.subreddit("popular")
+                popular_posts = await self._fetch_posts_with_sort(
+                    popular_subreddit, 
+                    sort_method=self.default_sort,
+                    time_filter=self.default_time_filter,
+                    limit=self.popular_posts_limit
+                )
+                for submission in popular_posts:
+                    # Add score and comment count for better context
                     chats.append(Chat(
                         id=submission.id, 
-                        title=f"My Post: {submission.title} [{submission.score}⬆ {submission.num_comments}💬]", 
+                        title=f"Popular: {submission.title} [{submission.score}⬆ {submission.num_comments}💬]", 
                         type="post"
                     ))
-                    count += 1
-        except Exception as e:
-            print(f"Could not fetch user's own posts: {e}")
+            except asyncprawcore.exceptions.ResponseException as e:
+                if e.response.status_code == 400:
+                    print(f"Reddit session invalid during popular posts fetch for user {user_identifier}: {e}")
+                    await self.logout(user_identifier)
+                    raise ValueError("Reddit session expired or invalid. Please log in again.")
+                raise e
+            except Exception as e:
+                print(f"Could not fetch popular posts: {e}")
+
+            # 3. Get user's own recent posts (always sorted by new)
+            try:
+                user = await reddit_user_instance.user.me()
+                if user:
+                    count = 0
+                    async for submission in user.submissions.new(limit=self.user_posts_limit):
+                        chats.append(Chat(
+                            id=submission.id, 
+                            title=f"My Post: {submission.title} [{submission.score}⬆ {submission.num_comments}💬]", 
+                            type="post"
+                        ))
+                        count += 1
+            except asyncprawcore.exceptions.ResponseException as e:
+                if e.response.status_code == 400:
+                    print(f"Reddit session invalid during user posts fetch for user {user_identifier}: {e}")
+                    await self.logout(user_identifier)
+                    raise ValueError("Reddit session expired or invalid. Please log in again.")
+                raise e
+            except Exception as e:
+                print(f"Could not fetch user's own posts: {e}")
+        
+        except asyncprawcore.exceptions.ResponseException as e:
+             if e.response.status_code == 400:
+                print(f"Reddit session invalid for user {user_identifier}: {e}")
+                await self.logout(user_identifier)
+                raise ValueError("Reddit session expired or invalid. Please log in again.")
+             raise e
 
         return chats
 
@@ -498,32 +534,39 @@ class RedditClient(ChatClient):
         reddit_user_instance = await self._get_reddit_instance(user_identifier)
 
         chats = []
-        subreddit = await reddit_user_instance.subreddit(subreddit_name)
-        
-        # Use configured defaults if not overridden
-        posts = await self._fetch_posts_with_sort(
-            subreddit,
-            sort_method=sort_method,
-            time_filter=time_filter,
-            limit=self.subreddit_posts_limit
-        )
-        
-        for submission in posts:
-            # Calculate engagement score for better insights
-            engagement_ratio = submission.num_comments / max(submission.score, 1)
+        try:
+            subreddit = await reddit_user_instance.subreddit(subreddit_name)
             
-            # Add rich metadata to help users identify interesting posts
-            title_with_metadata = (
-                f"{submission.title} "
-                f"[{submission.score}⬆ {submission.num_comments}💬 "
-                f"by u/{submission.author.name if submission.author else '[deleted]'}]"
+            # Use configured defaults if not overridden
+            posts = await self._fetch_posts_with_sort(
+                subreddit,
+                sort_method=sort_method,
+                time_filter=time_filter,
+                limit=self.subreddit_posts_limit
             )
             
-            chats.append(Chat(
-                id=submission.id, 
-                title=title_with_metadata,
-                type="post"
-            ))
+            for submission in posts:
+                # Calculate engagement score for better insights
+                engagement_ratio = submission.num_comments / max(submission.score, 1)
+                
+                # Add rich metadata to help users identify interesting posts
+                title_with_metadata = (
+                    f"{submission.title} "
+                    f"[{submission.score}⬆ {submission.num_comments}💬 "
+                    f"by u/{submission.author.name if submission.author else '[deleted]'}]"
+                )
+                
+                chats.append(Chat(
+                    id=submission.id, 
+                    title=title_with_metadata,
+                    type="post"
+                ))
+        except asyncprawcore.exceptions.ResponseException as e:
+            if e.response.status_code == 400:
+                print(f"Reddit session invalid for user {user_identifier}: {e}")
+                await self.logout(user_identifier)
+                raise ValueError("Reddit session expired or invalid. Please log in again.")
+            raise e
         
         return chats
 
@@ -548,72 +591,80 @@ class RedditClient(ChatClient):
 
         reddit_user_instance = await self._get_reddit_instance(user_identifier)
 
-        submission = await reddit_user_instance.submission(id=submission_id)
-        messages: List[Message] = []
-
-        # Set comment sort before fetching
-        submission.comment_sort = "best"
-        await submission.load()
-        
-        # 1. Add the post itself as the first message
-        post_author = submission.author
-        post_author_id = getattr(post_author, "id", "0") if post_author else "0"
-        post_author_name = getattr(post_author, "name", "[deleted]") if post_author else "[deleted]"
-        
-        post_text = submission.title
-        if submission.selftext:
-            post_text = f"{submission.title}\n\n{submission.selftext}"
-
-        image_fetcher = ImageFetcher(image_processing_settings, self.max_concurrent_image_downloads)
-        submission_attachments = await image_fetcher.fetch_submission_images(submission)
-        text_attachments = await image_fetcher.fetch_images_from_text(post_text)
-        attachments = submission_attachments + text_attachments
-
-        messages.append(Message(
-            id=submission.id,
-            text=post_text,
-            author=User(id=post_author_id, name=post_author_name),
-            timestamp=datetime.fromtimestamp(submission.created_utc, tz=timezone.utc).isoformat(),
-            thread_id=None,
-            attachments=attachments,
-        ))
-
-        # 2. Fetch and process all comments
         try:
-            # Limit the expansion of "more comments" to prevent excessive API calls
-            await submission.comments.replace_more(limit=32)
-        except Exception as e:
-            print(f"Error replacing 'more' comments: {e}")
+            submission = await reddit_user_instance.submission(id=submission_id)
+            messages: List[Message] = []
 
-        # Use a recursive helper function to traverse the comment tree
-        async def _process_comment_tree(comment_list, parent_id):
-            for comment in comment_list:
-                if isinstance(comment, MoreComments):
-                    continue
+            # Set comment sort before fetching
+            submission.comment_sort = "best"
+            await submission.load()
+            
+            # 1. Add the post itself as the first message
+            post_author = submission.author
+            post_author_id = getattr(post_author, "id", "0") if post_author else "0"
+            post_author_name = getattr(post_author, "name", "[deleted]") if post_author else "[deleted]"
+            
+            post_text = submission.title
+            if submission.selftext:
+                post_text = f"{submission.title}\n\n{submission.selftext}"
 
-                comment_author = comment.author
-                comment_author_id = getattr(comment_author, "id", "0") if comment_author else "0"
-                comment_author_name = getattr(comment_author, "name", "[deleted]") if comment_author else "[deleted]"
+            image_fetcher = ImageFetcher(image_processing_settings, self.max_concurrent_image_downloads)
+            submission_attachments = await image_fetcher.fetch_submission_images(submission)
+            text_attachments = await image_fetcher.fetch_images_from_text(post_text)
+            attachments = submission_attachments + text_attachments
 
-                comment_attachments = await image_fetcher.fetch_images_from_text(comment.body)
+            messages.append(Message(
+                id=submission.id,
+                text=post_text,
+                author=User(id=post_author_id, name=post_author_name),
+                timestamp=datetime.fromtimestamp(submission.created_utc, tz=timezone.utc).isoformat(),
+                thread_id=None,
+                attachments=attachments,
+            ))
 
-                messages.append(Message(
-                    id=comment.id,
-                    text=comment.body,
-                    author=User(id=comment_author_id, name=comment_author_name),
-                    timestamp=datetime.fromtimestamp(comment.created_utc, tz=timezone.utc).isoformat(),
-                    thread_id=submission.id, # All comments belong to the same submission thread
-                    parent_id=parent_id,
-                    attachments=comment_attachments,
-                ))
+            # 2. Fetch and process all comments
+            try:
+                # Limit the expansion of "more comments" to prevent excessive API calls
+                await submission.comments.replace_more(limit=32)
+            except Exception as e:
+                print(f"Error replacing 'more' comments: {e}")
 
-                # Recurse through replies
-                if hasattr(comment, 'replies') and comment.replies:
-                    await _process_comment_tree(comment.replies, parent_id=comment.id)
+            # Use a recursive helper function to traverse the comment tree
+            async def _process_comment_tree(comment_list, parent_id):
+                for comment in comment_list:
+                    if isinstance(comment, MoreComments):
+                        continue
 
-        await _process_comment_tree(submission.comments, parent_id=submission.id)
+                    comment_author = comment.author
+                    comment_author_id = getattr(comment_author, "id", "0") if comment_author else "0"
+                    comment_author_name = getattr(comment_author, "name", "[deleted]") if comment_author else "[deleted]"
 
-        return messages
+                    comment_attachments = await image_fetcher.fetch_images_from_text(comment.body)
+
+                    messages.append(Message(
+                        id=comment.id,
+                        text=comment.body,
+                        author=User(id=comment_author_id, name=comment_author_name),
+                        timestamp=datetime.fromtimestamp(comment.created_utc, tz=timezone.utc).isoformat(),
+                        thread_id=submission.id, # All comments belong to the same submission thread
+                        parent_id=parent_id,
+                        attachments=comment_attachments,
+                    ))
+
+                    # Recurse through replies
+                    if hasattr(comment, 'replies') and comment.replies:
+                        await _process_comment_tree(comment.replies, parent_id=comment.id)
+
+            await _process_comment_tree(submission.comments, parent_id=submission.id)
+
+            return messages
+            
+        except asyncprawcore.exceptions.ResponseException as e:
+            if e.response.status_code == 400:
+                print(f"Reddit session invalid for user {user_identifier}: {e}")
+                await self.logout(user_identifier)
+                raise ValueError("Reddit session expired or invalid. Please log in again.")
+            raise e
 
     async def is_session_valid(self, user_identifier: str) -> bool:
         """
