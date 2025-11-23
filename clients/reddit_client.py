@@ -49,7 +49,7 @@ class ImageFetcher:
     """
     A helper class to fetch and process images from URLs with connection pooling and concurrency control.
     """
-    def __init__(self, image_processing_settings: Optional[Dict[str, Any]] = None, global_max_concurrent: int = 20):
+    def __init__(self, image_processing_settings: Optional[Dict[str, Any]] = None, global_max_concurrent: int = 20, user_agent: str = "ChatAnalyzer/1.0"):
         self.enabled = image_processing_settings and image_processing_settings.get('enabled')
         # Use per-request setting if provided, otherwise use global config
         self.max_concurrent_downloads = (
@@ -69,7 +69,9 @@ class ImageFetcher:
             write=10.0,
             pool=5.0
         )
-        self.http_client = httpx.AsyncClient(limits=limits, timeout=timeout)
+        
+        headers = {"User-Agent": user_agent}
+        self.http_client = httpx.AsyncClient(limits=limits, timeout=timeout, headers=headers)
 
     async def fetch_images_from_text(self, text: str) -> List[Attachment]:
         if not self.enabled or not text:
@@ -608,7 +610,11 @@ class RedditClient(ChatClient):
             if submission.selftext:
                 post_text = f"{submission.title}\n\n{submission.selftext}"
 
-            image_fetcher = ImageFetcher(image_processing_settings, self.max_concurrent_image_downloads)
+            image_fetcher = ImageFetcher(
+                image_processing_settings, 
+                self.max_concurrent_image_downloads,
+                user_agent=self.reddit_config.get("user_agent", "ChatAnalyzer/1.0")
+            )
             submission_attachments = await image_fetcher.fetch_submission_images(submission)
             text_attachments = await image_fetcher.fetch_images_from_text(post_text)
             attachments = submission_attachments + text_attachments
