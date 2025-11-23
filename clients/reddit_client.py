@@ -119,6 +119,10 @@ class ImageFetcher:
             """Download a single image with semaphore-based rate limiting."""
             async with semaphore:
                 try:
+                    # Rewrite preview.redd.it to i.redd.it to avoid 403 Forbidden
+                    if "preview.redd.it" in url:
+                        url = url.replace("preview.redd.it", "i.redd.it")
+                        
                     response = await self.http_client.get(url)
                     response.raise_for_status()
                     content_type = response.headers.get('content-type', 'application/octet-stream')
