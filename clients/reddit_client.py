@@ -584,21 +584,31 @@ class RedditClient(ChatClient):
         if not await self.is_session_valid(user_identifier):
             raise Exception("User session is not valid.")
 
-        # Check if chat_id is a URL and extract the submission ID
+        # Check if chat_id is a URL
+        submission_url = None
         submission_id = chat_id
-        if "reddit.com" in chat_id:
-            # It's a URL, so we must extract the ID
-            url_match = re.search(r'comments/([a-zA-Z0-9]+)', chat_id)
-            if url_match:
-                submission_id = url_match.group(1)
-            else:
-                # If it looks like a URL but we can't parse it, raise an error
-                raise ValueError("Invalid Reddit URL format. Could not extract submission ID.")
+
+        if "reddit.com" in chat_id or "redd.it" in chat_id:
+            submission_url = chat_id
+            
+            # Resolve shortened URLs (e.g., /s/) to get the full URL
+            if "/s/" in chat_id:
+                try:
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(chat_id, follow_redirects=True)
+                        submission_url = str(response.url)
+                except Exception as e:
+                    print(f"Error resolving shortened URL {chat_id}: {e}")
+                    # Fallback to original URL and let PRAW try to handle it
 
         reddit_user_instance = await self._get_reddit_instance(user_identifier)
 
         try:
-            submission = await reddit_user_instance.submission(id=submission_id)
+            if submission_url:
+                submission = await reddit_user_instance.submission(url=submission_url)
+            else:
+                submission = await reddit_user_instance.submission(id=submission_id)
+            
             messages: List[Message] = []
 
             # Set comment sort before fetching
