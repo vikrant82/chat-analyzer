@@ -34,10 +34,40 @@ async def get_models(llm_manager: LLMManager = Depends(get_llm_manager)):
     return {"models": all_models, "default_model_info": default_model_info}
 
 @router.get("/chats")
-async def get_all_chats(user_id: str = Depends(auth_service.get_current_user_id), backend: str = Query(...)):
+async def get_all_chats(
+    user_id: str = Depends(auth_service.get_current_user_id), 
+    backend: str = Query(...),
+    limit: int = Query(50, ge=1, le=200),
+    cursor: str = Query(None)
+):
+    """
+    Fetches chat list with optional pagination support.
+    
+    Args:
+        backend: The platform backend (telegram, webex, reddit)
+        limit: Maximum number of chats to return (default: 50, max: 200)
+        cursor: Pagination cursor for fetching more results (Webex only)
+        
+    Returns:
+        Dict with 'chats' list and optional 'next_cursor' for pagination
+    """
     try:
         client = get_client(backend)
-        return await client.get_chats(user_id)
+        
+        # Check if client supports pagination (has limit/cursor params)
+        if backend == 'webex':
+            result = await client.get_chats(user_id, limit=limit, cursor=cursor)
+            return {
+                "chats": result["chats"],
+                "next_cursor": result.get("next_cursor")
+            }
+        else:
+            # Telegram and Reddit return full list (no pagination)
+            chats = await client.get_chats(user_id)
+            return {
+                "chats": chats,
+                "next_cursor": None
+            }
     except Exception as e:
         logger.error(f"Failed to get chats for {backend}: {e}", exc_info=True)
         if "401" in str(e) or "authoriz" in str(e).lower():

@@ -152,16 +152,30 @@ class WebexClient(ChatClient):
         except Exception as e:
             logger.error(f"Error during Webex token revocation: {e}", exc_info=True)
 
-    async def get_chats(self, user_identifier: str) -> List[Chat]:
-        raw_rooms = self.api.get_rooms()
+    async def get_chats(self, user_identifier: str, limit: int = 50, cursor: str = None) -> Dict[str, Any]:
+        """
+        Fetches chat rooms with pagination support.
+        
+        Args:
+            user_identifier: The user identifier
+            limit: Maximum number of chats to fetch (default: 50)
+            cursor: Pagination cursor for fetching more results
+            
+        Returns:
+            Dict with 'chats' (list of Chat objects) and 'next_cursor' (str or None)
+        """
+        result = self.api.get_rooms(max_rooms=limit, cursor=cursor)
         chats = [
             Chat(
                 id=room['id'],
                 title=room['title'],
                 type='group' if room['type'] == 'group' else 'private'
-            ) for room in raw_rooms
+            ) for room in result['items']
         ]
-        return chats
+        return {
+            "chats": chats,
+            "next_cursor": result.get('next_cursor')
+        }
 
     async def get_messages(self, user_identifier: str, chat_id: str, start_date_str: str, end_date_str: str, enable_caching: bool = True, image_processing_settings: Optional[Dict[str, Any]] = None, timezone_str: Optional[str] = None) -> List[Message]:
         # Determine user's timezone for local-day semantics

@@ -57,10 +57,11 @@ export function initializeScrollToBottom() {
     });
 }
 
-export async function handleLoadChats() {
+export async function handleLoadChats(loadMore = false) {
     const backend = appState.activeBackend;
     const choicesInstance = getChoicesInstance();
     const chatSelect = document.getElementById('chatSelect');
+    const loadMoreButton = document.getElementById('loadMoreChatsButton');
     
     // Remove previous listener to avoid duplicates
     const redditListener = appState.redditListener;
@@ -86,10 +87,13 @@ export async function handleLoadChats() {
     }
 
     const cacheKey = `${backend}-chats`;
-    const cachedChatsJSON = sessionStorage.getItem(cacheKey);
+    const cursorKey = `${backend}-chats-cursor`;
 
-    const populateChoices = (chats, source = 'new') => {
-        choicesInstance.clearStore();
+    // Helper to populate choices (append or replace)
+    const populateChoices = (chats, append = false, source = 'new') => {
+        if (!append) {
+            choicesInstance.clearStore();
+        }
         
         if (chats && chats.length > 0) {
             if (appState.activeBackend === 'reddit') {
@@ -133,9 +137,9 @@ export async function handleLoadChats() {
                     value: chat.id,
                     label: `${chat.title} (${chat.type})`
                 }));
-                choicesInstance.setChoices(chatOptions, 'value', 'label', false);
+                choicesInstance.setChoices(chatOptions, 'value', 'label', append);
             }
-        } else {
+        } else if (!append) {
             // Use wrapper's empty state method
             const label = source === 'cached' ? 'No chats found (cached)' : 'No chats found';
             choicesInstance.showEmptyText(label);
@@ -144,36 +148,100 @@ export async function handleLoadChats() {
         choicesInstance.enable();
     };
 
-    if (cachedChatsJSON) {
-        const cachedChats = JSON.parse(cachedChatsJSON);
-        populateChoices(cachedChats, 'cached');
-        appState.chatListStatus[backend] = 'loaded';
-        if(lastUpdatedTime) lastUpdatedTime.textContent = `Last updated: (cached)`;
-        updateStartChatButtonState();
-        return;
+    // Helper to update "Load More" button visibility
+    const updateLoadMoreButton = (nextCursor) => {
+        if (loadMoreButton) {
+            if (nextCursor && backend === 'webex') {
+                loadMoreButton.style.display = 'inline-block';
+                loadMoreButton.disabled = false;
+            } else {
+                loadMoreButton.style.display = 'none';
+            }
+        }
+    };
+
+    // If not loading more, check session cache first
+    if (!loadMore) {
+        const cachedChatsJSON = sessionStorage.getItem(cacheKey);
+        if (cachedChatsJSON) {
+            const cachedData = JSON.parse(cachedChatsJSON);
+            const chats = Array.isArray(cachedData) ? cachedData : (cachedData.chats || cachedData);
+            const cachedCursor = sessionStorage.getItem(cursorKey);
+            
+            populateChoices(chats, false, 'cached');
+            updateLoadMoreButton(cachedCursor);
+            appState.chatListStatus[backend] = 'loaded';
+            if(lastUpdatedTime) lastUpdatedTime.textContent = `Last updated: (cached)`;
+            updateStartChatButtonState();
+            return;
+        }
     }
 
     appState.chatListStatus[backend] = 'loading';
-    choicesInstance.disable();
-    choicesInstance.showLoadingText('Refreshing...');
+    
+    if (!loadMore) {
+        choicesInstance.disable();
+        choicesInstance.showLoadingText('Refreshing...');
+    }
+    
+    if (loadMoreButton && loadMore) {
+        loadMoreButton.disabled = true;
+        loadMoreButton.textContent = 'Loading...';
+    }
+    
     updateStartChatButtonState();
 
     try {
-        const url = `/api/chats?backend=${backend}`;
-        const data = await makeApiRequest(url, { method: 'GET' }, config.timeouts.loadChats, refreshChatsLink, 'Refreshing...', 'chats');
+        // Build URL with pagination params
+        const cursor = loadMore ? sessionStorage.getItem(cursorKey) : null;
+        let url = `/api/chats?backend=${backend}&limit=50`;
+        if (cursor) {
+            url += `&cursor=${encodeURIComponent(cursor)}`;
+        }
         
-        const chats = Array.isArray(data) ? data : (data.chats || []);
-        sessionStorage.setItem(cacheKey, JSON.stringify(chats));
+        const data = await makeApiRequest(url, { method: 'GET' }, config.timeouts.loadChats, loadMore ? null : refreshChatsLink, 'Refreshing...', 'chats');
         
-        populateChoices(chats, 'new');
+        const chats = data.chats || [];
+        const nextCursor = data.next_cursor;
+        
+        // Update cache
+        if (loadMore && backend === 'webex') {
+            // Append to existing cached chats
+            const existingJSON = sessionStorage.getItem(cacheKey);
+            const existingChats = existingJSON ? (JSON.parse(existingJSON).chats || JSON.parse(existingJSON)) : [];
+            const allChats = [...existingChats, ...chats];
+            sessionStorage.setItem(cacheKey, JSON.stringify({ chats: allChats }));
+        } else {
+            sessionStorage.setItem(cacheKey, JSON.stringify({ chats }));
+        }
+        
+        // Store cursor for next pagination request
+        if (nextCursor) {
+            sessionStorage.setItem(cursorKey, nextCursor);
+        } else {
+            sessionStorage.removeItem(cursorKey);
+        }
+        
+        populateChoices(chats, loadMore, 'new');
+        updateLoadMoreButton(nextCursor);
+        
         if(lastUpdatedTime) lastUpdatedTime.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
         appState.chatListStatus[backend] = 'loaded';
 
     } catch(error) {
         if (chatLoadingError) chatLoadingError.textContent = error.message || 'Failed to load chats.';
-        choicesInstance.showErrorText('Failed to load. Click "Refresh List".');
+        if (!loadMore) {
+            choicesInstance.showErrorText('Failed to load. Click "Refresh List".');
+        }
         appState.chatListStatus[backend] = 'unloaded';
     } finally {
+        if (loadMoreButton) {
+            loadMoreButton.textContent = 'Load More';
+            // Only re-enable if there's still a cursor
+            if (sessionStorage.getItem(cursorKey)) {
+                loadMoreButton.disabled = false;
+            }
+        }
         updateStartChatButtonState();
     }
 }

@@ -25,6 +25,8 @@ export function handleBackendChange() {
 export async function switchService(newBackend) {
     if (appState.activeBackend === newBackend) return;
 
+    clearErrors();
+
     if (appState.chatLoadController) {
         appState.chatLoadController.abort();
     }

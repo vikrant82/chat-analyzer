@@ -146,12 +146,41 @@ class WebexClient:
         logger.info("Successfully refreshed Webex access token.")
 
     @retry_on_failure(max_retries=3, delay=2)
-    def get_rooms(self, max_rooms=200):
+    def get_rooms(self, max_rooms=50, cursor=None):
+        """
+        Fetches rooms/spaces with pagination support.
+        
+        Args:
+            max_rooms: Maximum number of rooms to fetch per request (default: 50)
+            cursor: Pagination cursor from previous response's Link header
+            
+        Returns:
+            Dict with 'items' (list of rooms) and 'next_cursor' (str or None)
+        """
         self._update_headers()
         params = {"sortBy": "lastactivity", "max": max_rooms}
-        response = requests.get(ROOMS_URL, headers=self.headers, params=params)
+        
+        if cursor:
+            # Use cursor URL directly (Webex provides full URL in Link header)
+            response = requests.get(cursor, headers=self.headers)
+        else:
+            response = requests.get(ROOMS_URL, headers=self.headers, params=params)
+        
         response.raise_for_status()
-        return response.json().get("items", [])
+        
+        # Parse Link header for pagination cursor
+        next_cursor = None
+        link_header = response.headers.get('Link', '')
+        if 'rel="next"' in link_header:
+            # Extract URL from Link header format: <url>; rel="next"
+            parts = link_header.split(';')
+            if parts:
+                next_cursor = parts[0].strip('<> ')
+        
+        return {
+            "items": response.json().get("items", []),
+            "next_cursor": next_cursor
+        }
 
     @retry_on_failure(max_retries=3, delay=2)
     def get_messages(self, room_id: str, **kwargs):

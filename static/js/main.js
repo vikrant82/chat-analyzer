@@ -9,7 +9,7 @@ import {
     modelSelect, backendSelectMain, downloadChatButton, manageBotsButton, backToChatsButton,
     registerBotButton, toggleLhsButton, mainContainer, mobileMenuOverlay, themeCheckbox,
     conversationalChatSection, downloadHelp, chatSectionTitle, botManagementTitle,
-    workflowSubreddit, workflowUrl, updateRedditWorkflowUI
+    workflowSubreddit, workflowUrl, updateRedditWorkflowUI, clearErrors
 } from './ui.js';
 import { handleLogin, handleVerify, handleFullLogout, checkSessionOnLoad, handleBackendChange, switchService } from './auth.js';
 import { handleLoadChats, callChatApi, handleDownloadChat, loadModels, initializeScrollToBottom } from './chat.js';
@@ -504,12 +504,24 @@ document.addEventListener('DOMContentLoaded', () => {
     if (refreshChatsLink) {
         eventManager.register(refreshChatsLink, 'click', (e) => {
             e.preventDefault();
+            clearErrors();
             const backend = appState.activeBackend;
             if (backend) {
                 const cacheKey = `${backend}-chats`;
+                const cursorKey = `${backend}-chats-cursor`;
                 sessionStorage.removeItem(cacheKey);
+                sessionStorage.removeItem(cursorKey);
             }
-            handleLoadChats();
+            handleLoadChats(false);
+        }, 'chat');
+    }
+
+    // Load More Chats button (for Webex pagination)
+    const loadMoreChatsButton = document.getElementById('loadMoreChatsButton');
+    if (loadMoreChatsButton) {
+        eventManager.register(loadMoreChatsButton, 'click', (e) => {
+            e.preventDefault();
+            handleLoadChats(true);
         }, 'chat');
     }
     
