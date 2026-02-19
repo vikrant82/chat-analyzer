@@ -17,6 +17,8 @@ export const appState = {
     currentChatId: null, // Holds the ID of the current chat session
     postChoicesInstance: null,
     webexSearchListener: null,
+    webexSearchInputListener: null,
+    webexSearchDebounceTimer: null,
     webexSearchPrefetchInProgress: false,
 };
 

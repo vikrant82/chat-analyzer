@@ -37,9 +37,25 @@ function hasMatchingCachedWebexChat(query, cacheKey) {
     }
 
     return getCachedChats(cacheKey).some(chat => {
-        const title = `${chat.title || ''} ${chat.type || ''}`.toLowerCase();
-        return title.includes(normalizedQuery);
+        const searchableText = `${chat.title || ''} ${chat.type || ''} ${chat.id || ''}`.toLowerCase();
+        return searchableText.includes(normalizedQuery);
     });
+}
+
+function reapplyCurrentSearchFilter(choicesInstance) {
+    const rawChoices = choicesInstance?.getRawInstance?.();
+    const searchInput = rawChoices?.input?.element;
+    if (!searchInput) {
+        return;
+    }
+
+    const currentQuery = searchInput.value;
+    if (!currentQuery) {
+        return;
+    }
+
+    // Trigger Choices filtering again after we mutate available choices.
+    searchInput.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 async function prefetchWebexSearchResults(query, cacheKey, cursorKey) {
@@ -52,7 +68,7 @@ async function prefetchWebexSearchResults(query, cacheKey, cursorKey) {
         return;
     }
 
-    if (!sessionStorage.getItem(cursorKey) || hasMatchingCachedWebexChat(normalizedQuery, cacheKey)) {
+    if (!sessionStorage.getItem(cursorKey)) {
         return;
     }
 
@@ -140,6 +156,23 @@ export async function handleLoadChats(loadMore = false) {
         appState.webexSearchListener = null;
     }
 
+    const webexSearchInputListener = appState.webexSearchInputListener;
+    if (webexSearchInputListener && chatSelect?.dataset?.webexSearchInputBound === 'true') {
+        const rawChoices = choicesInstance?.getRawInstance?.();
+        const searchInput = rawChoices?.input?.element;
+        if (searchInput) {
+            searchInput.removeEventListener('input', webexSearchInputListener);
+            searchInput.removeEventListener('keyup', webexSearchInputListener);
+        }
+        delete chatSelect.dataset.webexSearchInputBound;
+        appState.webexSearchInputListener = null;
+    }
+
+    if (appState.webexSearchDebounceTimer) {
+        clearTimeout(appState.webexSearchDebounceTimer);
+        appState.webexSearchDebounceTimer = null;
+    }
+
     if (backend === 'reddit') {
         initializeRedditPostChoices();
         const newRedditListener = handleRedditChatSelection;
@@ -153,15 +186,39 @@ export async function handleLoadChats(loadMore = false) {
         }
 
         if (backend === 'webex') {
-            const onSearch = (event) => {
-                const query = event?.detail?.value || '';
+            const triggerSearchPrefetch = (query) => {
                 const cacheKey = `${backend}-chats`;
                 const cursorKey = `${backend}-chats-cursor`;
-                prefetchWebexSearchResults(query, cacheKey, cursorKey);
+                if (appState.webexSearchDebounceTimer) {
+                    clearTimeout(appState.webexSearchDebounceTimer);
+                }
+
+                appState.webexSearchDebounceTimer = setTimeout(() => {
+                    prefetchWebexSearchResults(query, cacheKey, cursorKey);
+                }, 250);
+            };
+
+            const onSearch = (event) => {
+                const query = event?.detail?.value || '';
+                triggerSearchPrefetch(query);
+            };
+
+            const onSearchInput = (event) => {
+                const query = event?.target?.value || '';
+                triggerSearchPrefetch(query);
             };
 
             chatSelect.addEventListener('search', onSearch);
             appState.webexSearchListener = onSearch;
+
+            const rawChoices = choicesInstance?.getRawInstance?.();
+            const searchInput = rawChoices?.input?.element;
+            if (searchInput) {
+                searchInput.addEventListener('input', onSearchInput);
+                searchInput.addEventListener('keyup', onSearchInput);
+                appState.webexSearchInputListener = onSearchInput;
+                chatSelect.dataset.webexSearchInputBound = 'true';
+            }
         }
     }
     if (!backend || !choicesInstance || !appState.sessionTokens[backend]) {
@@ -174,6 +231,8 @@ export async function handleLoadChats(loadMore = false) {
 
     // Helper to populate choices (append or replace)
     const populateChoices = (chats, append = false, source = 'new') => {
+        const selectedChatId = choicesInstance.getValue(true);
+
         if (!append) {
             choicesInstance.clearStore();
         }
@@ -220,7 +279,16 @@ export async function handleLoadChats(loadMore = false) {
                     value: chat.id,
                     label: `${chat.title} (${chat.type})`
                 }));
-                choicesInstance.setChoices(chatOptions, 'value', 'label', append);
+                // Choices API uses "replaceChoices"; for append flow we pass false.
+                choicesInstance.setChoices(chatOptions, 'value', 'label', !append);
+
+                // Preserve selected value across internal re-population cycles.
+                if (selectedChatId) {
+                    const selectedExists = chatOptions.some(option => option.value === selectedChatId);
+                    if (selectedExists) {
+                        choicesInstance.setChoiceByValue(selectedChatId);
+                    }
+                }
             }
         } else if (!append) {
             // Use wrapper's empty state method
@@ -282,7 +350,13 @@ export async function handleLoadChats(loadMore = false) {
             sessionStorage.removeItem(cursorKey);
         }
         
-        populateChoices(chats, loadMore, 'new');
+        if (loadMore && backend === 'webex') {
+            const allCachedChats = getCachedChats(cacheKey);
+            populateChoices(allCachedChats, false, 'new');
+            reapplyCurrentSearchFilter(choicesInstance);
+        } else {
+            populateChoices(chats, loadMore, 'new');
+        }
         
         if(lastUpdatedTime) lastUpdatedTime.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
         appState.chatListStatus[backend] = 'loaded';
