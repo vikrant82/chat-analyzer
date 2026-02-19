@@ -16,6 +16,8 @@ export const appState = {
     conversation: [], // Holds the current chat history {role, content}
     currentChatId: null, // Holds the ID of the current chat session
     postChoicesInstance: null,
+    webexSearchListener: null,
+    webexSearchPrefetchInProgress: false,
 };
 
 export const CACHE_CHATS_KEY = 'chat_analyzer_cache_chats_enabled';

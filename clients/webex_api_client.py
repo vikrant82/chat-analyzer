@@ -168,14 +168,21 @@ class WebexClient:
         
         response.raise_for_status()
         
-        # Parse Link header for pagination cursor
+        # Parse Link header for pagination cursor.
+        # Webex can return multiple comma-separated links; only use rel="next".
         next_cursor = None
         link_header = response.headers.get('Link', '')
-        if 'rel="next"' in link_header:
-            # Extract URL from Link header format: <url>; rel="next"
-            parts = link_header.split(';')
-            if parts:
-                next_cursor = parts[0].strip('<> ')
+        if link_header:
+            for link_part in link_header.split(','):
+                part = link_part.strip()
+                if 'rel="next"' not in part:
+                    continue
+
+                start = part.find('<')
+                end = part.find('>', start + 1)
+                if start != -1 and end != -1:
+                    next_cursor = part[start + 1:end].strip()
+                    break
         
         return {
             "items": response.json().get("items", []),

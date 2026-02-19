@@ -9,6 +9,72 @@ import {
 import { handleFullLogout } from './auth.js';
 import { initializeRedditPostChoices, getPostChoicesInstance, handleRedditChatSelection } from './reddit.js';
 
+const WEBEX_PAGE_SIZE = 50;
+const WEBEX_SEARCH_MIN_LENGTH = 2;
+const WEBEX_SEARCH_MAX_LOOKAHEAD_PAGES = 3;
+
+function getCachedChats(cacheKey) {
+    const cachedJSON = sessionStorage.getItem(cacheKey);
+    if (!cachedJSON) {
+        return [];
+    }
+
+    try {
+        const parsed = JSON.parse(cachedJSON);
+        if (Array.isArray(parsed)) {
+            return parsed;
+        }
+        return parsed.chats || [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function hasMatchingCachedWebexChat(query, cacheKey) {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) {
+        return false;
+    }
+
+    return getCachedChats(cacheKey).some(chat => {
+        const title = `${chat.title || ''} ${chat.type || ''}`.toLowerCase();
+        return title.includes(normalizedQuery);
+    });
+}
+
+async function prefetchWebexSearchResults(query, cacheKey, cursorKey) {
+    if (appState.activeBackend !== 'webex' || appState.webexSearchPrefetchInProgress) {
+        return;
+    }
+
+    const normalizedQuery = query.trim();
+    if (normalizedQuery.length < WEBEX_SEARCH_MIN_LENGTH) {
+        return;
+    }
+
+    if (!sessionStorage.getItem(cursorKey) || hasMatchingCachedWebexChat(normalizedQuery, cacheKey)) {
+        return;
+    }
+
+    appState.webexSearchPrefetchInProgress = true;
+
+    try {
+        for (let page = 0; page < WEBEX_SEARCH_MAX_LOOKAHEAD_PAGES; page++) {
+            if (!sessionStorage.getItem(cursorKey)) {
+                break;
+            }
+
+            await handleLoadChats(true);
+
+            if (hasMatchingCachedWebexChat(normalizedQuery, cacheKey)) {
+                break;
+            }
+        }
+    } finally {
+        appState.webexSearchPrefetchInProgress = false;
+    }
+}
+
 /**
  * Smart auto-scroll: Only scrolls to bottom if user is already near the bottom
  * This prevents interrupting users who are reading earlier messages during streaming
@@ -61,12 +127,17 @@ export async function handleLoadChats(loadMore = false) {
     const backend = appState.activeBackend;
     const choicesInstance = getChoicesInstance();
     const chatSelect = document.getElementById('chatSelect');
-    const loadMoreButton = document.getElementById('loadMoreChatsButton');
     
     // Remove previous listener to avoid duplicates
     const redditListener = appState.redditListener;
     if (redditListener) {
         chatSelect.removeEventListener('addItem', redditListener);
+    }
+
+    const webexSearchListener = appState.webexSearchListener;
+    if (webexSearchListener) {
+        chatSelect.removeEventListener('search', webexSearchListener);
+        appState.webexSearchListener = null;
     }
 
     if (backend === 'reddit') {
@@ -79,6 +150,18 @@ export async function handleLoadChats(loadMore = false) {
         const redditPostSelectGroup = document.getElementById('redditPostSelectGroup');
         if (redditPostSelectGroup) {
             redditPostSelectGroup.style.display = 'none';
+        }
+
+        if (backend === 'webex') {
+            const onSearch = (event) => {
+                const query = event?.detail?.value || '';
+                const cacheKey = `${backend}-chats`;
+                const cursorKey = `${backend}-chats-cursor`;
+                prefetchWebexSearchResults(query, cacheKey, cursorKey);
+            };
+
+            chatSelect.addEventListener('search', onSearch);
+            appState.webexSearchListener = onSearch;
         }
     }
     if (!backend || !choicesInstance || !appState.sessionTokens[backend]) {
@@ -148,28 +231,11 @@ export async function handleLoadChats(loadMore = false) {
         choicesInstance.enable();
     };
 
-    // Helper to update "Load More" button visibility
-    const updateLoadMoreButton = (nextCursor) => {
-        if (loadMoreButton) {
-            if (nextCursor && backend === 'webex') {
-                loadMoreButton.style.display = 'inline-block';
-                loadMoreButton.disabled = false;
-            } else {
-                loadMoreButton.style.display = 'none';
-            }
-        }
-    };
-
     // If not loading more, check session cache first
     if (!loadMore) {
-        const cachedChatsJSON = sessionStorage.getItem(cacheKey);
-        if (cachedChatsJSON) {
-            const cachedData = JSON.parse(cachedChatsJSON);
-            const chats = Array.isArray(cachedData) ? cachedData : (cachedData.chats || cachedData);
-            const cachedCursor = sessionStorage.getItem(cursorKey);
-            
+        const chats = getCachedChats(cacheKey);
+        if (chats.length > 0) {
             populateChoices(chats, false, 'cached');
-            updateLoadMoreButton(cachedCursor);
             appState.chatListStatus[backend] = 'loaded';
             if(lastUpdatedTime) lastUpdatedTime.textContent = `Last updated: (cached)`;
             updateStartChatButtonState();
@@ -184,17 +250,12 @@ export async function handleLoadChats(loadMore = false) {
         choicesInstance.showLoadingText('Refreshing...');
     }
     
-    if (loadMoreButton && loadMore) {
-        loadMoreButton.disabled = true;
-        loadMoreButton.textContent = 'Loading...';
-    }
-    
     updateStartChatButtonState();
 
     try {
         // Build URL with pagination params
         const cursor = loadMore ? sessionStorage.getItem(cursorKey) : null;
-        let url = `/api/chats?backend=${backend}&limit=50`;
+        let url = `/api/chats?backend=${backend}&limit=${WEBEX_PAGE_SIZE}`;
         if (cursor) {
             url += `&cursor=${encodeURIComponent(cursor)}`;
         }
@@ -207,8 +268,7 @@ export async function handleLoadChats(loadMore = false) {
         // Update cache
         if (loadMore && backend === 'webex') {
             // Append to existing cached chats
-            const existingJSON = sessionStorage.getItem(cacheKey);
-            const existingChats = existingJSON ? (JSON.parse(existingJSON).chats || JSON.parse(existingJSON)) : [];
+            const existingChats = getCachedChats(cacheKey);
             const allChats = [...existingChats, ...chats];
             sessionStorage.setItem(cacheKey, JSON.stringify({ chats: allChats }));
         } else {
@@ -223,7 +283,6 @@ export async function handleLoadChats(loadMore = false) {
         }
         
         populateChoices(chats, loadMore, 'new');
-        updateLoadMoreButton(nextCursor);
         
         if(lastUpdatedTime) lastUpdatedTime.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
         appState.chatListStatus[backend] = 'loaded';
@@ -233,15 +292,12 @@ export async function handleLoadChats(loadMore = false) {
         if (!loadMore) {
             choicesInstance.showErrorText('Failed to load. Click "Refresh List".');
         }
-        appState.chatListStatus[backend] = 'unloaded';
-    } finally {
-        if (loadMoreButton) {
-            loadMoreButton.textContent = 'Load More';
-            // Only re-enable if there's still a cursor
-            if (sessionStorage.getItem(cursorKey)) {
-                loadMoreButton.disabled = false;
-            }
+        if (!loadMore) {
+            appState.chatListStatus[backend] = 'unloaded';
+        } else {
+            console.warn('Webex lookahead pagination failed:', error);
         }
+    } finally {
         updateStartChatButtonState();
     }
 }

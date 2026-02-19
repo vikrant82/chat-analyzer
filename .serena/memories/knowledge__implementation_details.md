@@ -183,3 +183,9 @@ def resolve_root(start_id: str) -> Tuple[str, bool]:
 - **File**: `sessions/app_sessions.json`
 - **Structure**: `{backend: {logged_in: bool, user_identifier: str}}`
 - **Purpose**: Track active sessions for session-status endpoint
+
+## Webex Chat Listing Pagination (2026-02)
+- Initial Webex room list intentionally fetches top 50 (`limit=50`) for fast first paint.
+- Frontend now performs search-driven lookahead pagination: when search text has no cached match and `next_cursor` exists, it auto-fetches up to 3 additional pages in the background.
+- Manual `Load More` UX was removed; pagination is now transparent during search.
+- Backend cursor extraction from Webex `Link` header is robust for multi-link headers by selecting the entry with `rel="next"`.

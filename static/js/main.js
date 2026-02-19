@@ -516,15 +516,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 'chat');
     }
 
-    // Load More Chats button (for Webex pagination)
-    const loadMoreChatsButton = document.getElementById('loadMoreChatsButton');
-    if (loadMoreChatsButton) {
-        eventManager.register(loadMoreChatsButton, 'click', (e) => {
-            e.preventDefault();
-            handleLoadChats(true);
-        }, 'chat');
-    }
-    
     if (modelSelect) {
         eventManager.register(modelSelect, 'change', updateStartChatButtonState, 'chat');
     }
